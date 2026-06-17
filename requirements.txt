@@ -7,6 +7,11 @@ numpy==2.4.6
 streamlit==1.58.0
 plotly==6.8.0
 
+# 뉴스 호재 분석 (2단계)
+requests==2.34.2
+beautifulsoup4==4.15.0
+feedparser==6.0.12
+lxml==6.1.1
+
 # (다음 단계에서 추가 예정)
-# 뉴스 분석: requests, beautifulsoup4, feedparser
 # 백테스팅: 책의 전략 + 자체 엔진

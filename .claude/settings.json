@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(./venv/bin/pip freeze *)"
+      "Bash(./venv/bin/pip freeze *)",
+      "Bash(./venv/bin/pip install *)",
+      "Bash(echo \"EXIT:$?\")"
     ]
   }
 }

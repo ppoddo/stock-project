@@ -22,7 +22,7 @@
 | 분석 | pandas, numpy | 지표·점수 계산 |
 | 웹 | Streamlit | 대시보드 |
 | 시각화 | Plotly | 캔들·지표 차트 |
-| 뉴스 | (예정) requests, beautifulsoup4, feedparser | 2단계 |
+| 뉴스 | requests, feedparser, beautifulsoup4 | 구글 뉴스 RSS (키 불필요) |
 | 백테스팅 | (예정) 자체 엔진 + 책 전략 | 5단계 |
 
 ## 폴더 구조
@@ -39,7 +39,11 @@ stock-project/
       __init__.py             ← get_source(name) 팩토리
     analysis/
       trend.py                ← 트렌드 지표(MA/RSI/MACD) + 0~100 추세 점수
-    (예정) news/              ← 뉴스 수집 + 호재 점수 (2단계)
+    news/                     ← 뉴스 수집 + 호재 점수
+      base.py                 ← NewsSource 인터페이스 + NewsItem
+      google_news.py          ← 구글 뉴스 RSS 구현 (한/미 통합)
+      sentiment.py            ← 키워드 기반 0~100 호재 점수
+      __init__.py             ← get_news_source(name) 팩토리
     (예정) profile/           ← 사용자 선호 카테고리 가중치 (3단계)
     (예정) signal/            ← 트렌드+뉴스+선호 종합 시그널 (4단계)
     (예정) backtest/          ← 백테스팅 엔진 (5단계)
@@ -76,7 +80,7 @@ WSL Ubuntu에서 개발.
 
 ## 개발 단계 현황
 - [x] **1단계: 데이터 + 트렌드 분석** — 한/미 수집, MA/RSI/MACD, 추세 점수, Streamlit 골격
-- [ ] **2단계: 뉴스 호재 분석** — 종목 뉴스 수집 + 감성/호재 점수
+- [x] **2단계: 뉴스 호재 분석** — 구글 뉴스 RSS 수집 + 키워드 기반 호재 점수, 종목명 자동조회, 대시보드 연결
 - [ ] **3단계: 사용자 선호 카테고리** — 반도체/2차전지/배당 등 가중치 프로필
 - [ ] **4단계: 종합 시그널 엔진** — 트렌드+뉴스+선호 → 매수/매도 점수
 - [ ] **5단계: 백테스팅** — 과거 데이터로 전략 검증 (수익률·MDD·승률)

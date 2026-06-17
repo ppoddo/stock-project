@@ -38,3 +38,8 @@ class DataSource(ABC):
     def detect_market(self, symbol: str) -> str:
         """종목코드로 시장('KR'/'US')을 추정한다."""
         raise NotImplementedError
+
+    @abstractmethod
+    def get_name(self, symbol: str) -> str:
+        """종목코드를 표시용 이름으로 바꾼다. 뉴스 검색어로도 쓰인다."""
+        raise NotImplementedError

@@ -3,10 +3,17 @@ from __future__ import annotations
 
 import re
 from datetime import date
+from functools import lru_cache
 
 import FinanceDataReader as fdr
 
 from .base import DataSource, PriceData
+
+
+@lru_cache(maxsize=1)
+def _krx_listing():
+    """KRX 종목 마스터(코드↔이름). 최초 1회만 받아 캐시한다."""
+    return fdr.StockListing("KRX").set_index("Code")["Name"].to_dict()
 
 
 class FdrSource(DataSource):
@@ -15,6 +22,15 @@ class FdrSource(DataSource):
     def detect_market(self, symbol: str) -> str:
         # 한국 종목코드는 숫자 6자리(예: 005930). 그 외는 미국 티커로 본다.
         return "KR" if re.fullmatch(r"\d{6}", symbol) else "US"
+
+    def get_name(self, symbol: str) -> str:
+        """종목코드 -> 표시용 이름. 한국 종목은 마스터에서 조회, 실패 시 코드 그대로."""
+        if self.detect_market(symbol) == "KR":
+            try:
+                return _krx_listing().get(symbol, symbol)
+            except Exception:  # noqa: BLE001 - 마스터 조회 실패해도 코드로 동작
+                return symbol
+        return symbol  # 미국은 티커 자체를 검색어로 사용
 
     def get_price(self, symbol: str, start: str, end: str | None = None) -> PriceData:
         end = end or date.today().isoformat()
@@ -26,7 +42,7 @@ class FdrSource(DataSource):
         df = df[cols].dropna()
         return PriceData(
             symbol=symbol,
-            name=symbol,  # 이름 조회는 다음 단계에서 종목 마스터로 보강
+            name=self.get_name(symbol),
             market=self.detect_market(symbol),
             df=df,
         )

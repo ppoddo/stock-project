@@ -8,6 +8,7 @@ __pycache__/
 .env
 .env.local
 *.key
+!.env.example
 
 # 데이터 캐시 / 결과물
 *.csv

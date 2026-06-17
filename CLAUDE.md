@@ -52,9 +52,14 @@ stock-project/
       local.py                ← 로컬 JSON 구현 (배포 시 Firebase/Supabase로 교체)
     signal/                   ← 종합 시그널 엔진
       engine.py               ← 세 점수 가중합 → 매수/관망/매도 + analyze_symbol() 공용 진입점
-    (예정) monitor/           ← 24시간 감시 워커 + 텔레그램 알림 (5단계)
+    notify/                   ← 알림 채널 (추상화)
+      base.py                 ← Notifier 인터페이스
+      telegram.py             ← 텔레그램 봇 / console.py ← 콘솔 대체
+    monitor/                  ← 감시 워커
+      watcher.py              ← 즐겨찾기 순회 + 시그널 + 중복방지 알림
     (예정) backtest/          ← 백테스팅 엔진
     (예정) paper/             ← 모의투자 가상 계좌
+  watch.py                    ← 24시간 감시 실행 진입점 (--once / --get-chat-id)
 ```
 
 ## 개발 환경
@@ -90,7 +95,7 @@ WSL Ubuntu에서 개발.
 - [x] **2단계: 뉴스 호재 분석** — 구글 뉴스 RSS 수집 + 키워드 기반 호재 점수, 종목명 자동조회, 대시보드 연결
 - [x] **3단계: 사용자 선호 카테고리** — 테마 가중치 + 즐겨찾기, 0~100 선호도 점수, 로컬 JSON 저장소(추상화), 대시보드 연결
 - [x] **4단계: 종합 시그널 엔진** — 세 점수 가중합(기본 추세50:뉴스30:선호20) → 매수/관망/매도, analyze_symbol() 공용 진입점, 대시보드 연결
-- [ ] **5단계: 24시간 감시 워커 + 텔레그램 알림** — 관심종목 주기 점검 → 시그널 충족 시 텔레그램 푸시
+- [x] **5단계: 24시간 감시 워커 + 텔레그램 알림** — 즐겨찾기 순회 → 시그널(매수/매도) 변화 시에만 텔레그램/콘솔 알림(중복방지), watch.py CLI
 - [ ] **5.5단계: 백테스팅** — 과거 데이터로 전략/가중치 검증 (수익률·MDD·승률)
 - [ ] **6단계: 24시간 배포** — Oracle 무료 VM 등 always-on 호스팅
 - [ ] **(추후) 모의투자** — 가상 계좌 시뮬레이션 + 대시보드 통합
@@ -106,6 +111,16 @@ WSL Ubuntu에서 개발.
 - 실거래 관련 코드는 사용자 명시 승인 전까지 추가하지 않는다 (안전 규칙 1).
 
 ## 직접 해야 하는 일 (코드 밖)
-- [ ] (2단계) 뉴스 API/RSS 소스 선택 및 (필요 시) 키 발급
-- [ ] (4단계 이후) 전략 가중치를 백테스팅 결과 보고 함께 결정
+- [ ] (5단계) 텔레그램 봇 토큰 발급(@BotFather) → `.env` 입력 → `python watch.py --get-chat-id` 로 chat_id 확인 → `.env` 입력
+- [ ] (6단계) 24시간 호스팅 선택 (Oracle 무료 VM 등) 후 watch.py 상시 구동
+- [ ] (5.5단계 이후) 전략 가중치를 백테스팅 결과 보고 함께 결정
 - [ ] (실거래 전환 시, 먼 미래) 증권사 OpenAPI 계좌·인증 — 충분한 검증 후에만
+
+## 환경변수 (.env)
+`.env.example` 참고. `.env` 는 커밋 금지(`.gitignore` 처리, `!.env.example` 예외).
+- `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` — 텔레그램 알림. 없으면 콘솔로 자동 대체.
+- `WATCH_INTERVAL_MIN` — 감시 주기(분), 기본 30.
+
+## 실행
+- 대시보드: `./venv/bin/streamlit run app.py`
+- 감시 워커: `./venv/bin/python watch.py` (무한) · `--once`(1회) · `--get-chat-id`(chat_id 확인)

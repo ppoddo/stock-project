@@ -13,6 +13,9 @@ __pycache__/
 *.csv
 data_cache/
 
+# 사용자 프로필 (개인 데이터 — 커밋하지 않음)
+data_store/
+
 # OS / 에디터
 .DS_Store
 .vscode/

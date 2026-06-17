@@ -9,23 +9,25 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from trading.data import get_source
-from trading.analysis import trend_score
-from trading.news import get_news_source, news_score
+from trading.news import get_news_source
 from trading.storage import get_storage
-from trading.profile import UserProfile, preference_score, all_theme_names, THEMES
+from trading.profile import UserProfile, all_theme_names, THEMES
+from trading.signal import analyze_symbol, DEFAULT_WEIGHTS
 
 st.set_page_config(page_title="AI 트레이딩 대시보드", layout="wide")
 st.title("📈 AI 트레이딩 대시보드")
-st.caption("1~3단계: 트렌드 + 뉴스 호재 + 내 취향 · 모의/백테스팅 기반 (실거래 아님)")
+st.caption("1~4단계: 트렌드+뉴스+취향 → 종합 시그널 · 모의/백테스팅 기반 (실거래 아님)")
 
 storage = get_storage("local")
+data_src = get_source("fdr")
+news_src = get_news_source("google")
 
 
-@st.cache_data(ttl=600, show_spinner=False)
-def fetch_news(query: str, market: str):
-    """뉴스 수집 + 호재 점수. 10분 캐시로 중복 요청을 줄인다."""
-    items = get_news_source("google").search(query, market=market, limit=30)
-    return news_score(items)
+@st.cache_data(ttl=600, show_spinner="분석 중…")
+def run_analysis(symbol: str, start: str, weights: tuple, _profile: UserProfile):
+    """종목 종합 분석. 10분 캐시. weights는 캐시키용 tuple."""
+    w = {"trend": weights[0], "news": weights[1], "pref": weights[2]}
+    return analyze_symbol(symbol, _profile, data_src, news_src, start=start, weights=w)
 
 
 # 프로필을 세션에 1회 로드 (이후 편집은 세션 상태에서)
@@ -65,32 +67,48 @@ with st.sidebar:
     if profile.favorites:
         st.caption("⭐ 즐겨찾기: " + ", ".join(profile.favorites))
 
+    st.divider()
+    st.header("🎚️ 시그널 가중치")
+    st.caption("세 점수를 합칠 비율 (5단계 백테스팅에서 튜닝 예정)")
+    wt = st.slider("📈 추세", 0, 100, int(DEFAULT_WEIGHTS["trend"] * 100), 5)
+    wn = st.slider("📰 뉴스", 0, 100, int(DEFAULT_WEIGHTS["news"] * 100), 5)
+    wp = st.slider("⚙️ 선호", 0, 100, int(DEFAULT_WEIGHTS["pref"] * 100), 5)
+    wsum = wt + wn + wp or 1
+    weights = (wt / wsum, wn / wsum, wp / wsum)  # 합 1.0 정규화
+    st.caption(f"정규화: 추세 {weights[0]:.0%} · 뉴스 {weights[1]:.0%} · 선호 {weights[2]:.0%}")
+
 # ── 분석 ──────────────────────────────────────────────
 if symbol:
-    src = get_source("fdr")
     start_str = start.isoformat() if start else "2023-01-01"
     try:
-        price = src.get_price(symbol, start=start_str)
+        a = run_analysis(symbol, start_str, weights, profile)
     except Exception as e:  # noqa: BLE001
         st.error(f"데이터를 가져오지 못했습니다: {e}")
         st.stop()
 
-    result = trend_score(price.df)
-    ind = result.indicators
-    news = fetch_news(price.name, price.market)
-    pref = preference_score(symbol, profile)
+    sig = a.signal
+    st.subheader(f"{a.price.name} ({a.price.symbol})")
 
-    st.subheader(f"{price.name} ({price.symbol})")
+    # 종합 시그널 배너
+    st.markdown(f"## {sig.emoji} 종합 시그널: **{sig.action}**  ·  {sig.total} / 100")
+    if sig.action == "매수":
+        st.success(sig.reasons[0])
+    elif sig.action == "매도":
+        st.error(sig.reasons[0])
+    else:
+        st.warning(sig.reasons[0])
+    st.caption("⚠️ 참고용 신호입니다. 투자 판단·책임은 본인에게 있습니다.")
 
     # 상단 요약: 시장/종가 + 3개 점수
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("시장", price.market)
-    c2.metric("최근 종가", f"{price.last_close:,.2f}")
-    c3.metric("📈 추세 점수", f"{result.score}", result.label)
-    c4.metric("📰 뉴스 호재", f"{news.score}", news.label)
-    c5.metric("⚙️ 내 선호도", f"{pref.score}", pref.label)
+    c1.metric("시장", a.price.market)
+    c2.metric("최근 종가", f"{a.price.last_close:,.2f}")
+    c3.metric("📈 추세 점수", f"{a.trend.score}", a.trend.label)
+    c4.metric("📰 뉴스 호재", f"{a.news.score}", a.news.label)
+    c5.metric("⚙️ 내 선호도", f"{a.pref.score}", a.pref.label)
 
     # 가격 + 이동평균 차트
+    ind = a.trend.indicators
     fig = go.Figure()
     fig.add_trace(go.Candlestick(
         x=ind.index, open=ind["Open"], high=ind["High"],
@@ -106,22 +124,22 @@ if symbol:
     col_t, col_n, col_p = st.columns(3)
     with col_t:
         st.subheader("📈 추세 근거")
-        for r in result.reasons:
+        for r in a.trend.reasons:
             st.write(f"- {r}")
     with col_n:
-        st.subheader(f"📰 뉴스 근거 (신뢰도 {news.confidence})")
-        for r in news.reasons:
+        st.subheader(f"📰 뉴스 근거 (신뢰도 {a.news.confidence})")
+        for r in a.news.reasons:
             st.write(f"- {r}")
     with col_p:
         st.subheader("⚙️ 선호도 근거")
-        for r in pref.reasons:
+        for r in a.pref.reasons:
             st.write(f"- {r}")
 
     # 최신 뉴스 목록
-    if news.top_news:
-        with st.expander(f"📰 최신 뉴스 {len(news.top_news)}건 보기"):
-            for it in news.top_news:
+    if a.news.top_news:
+        with st.expander(f"📰 최신 뉴스 {len(a.news.top_news)}건 보기"):
+            for it in a.news.top_news:
                 when = it.published.strftime("%m/%d") if it.published else ""
                 st.markdown(f"- [{it.title}]({it.link})  ·  {it.source} {when}")
 
-    st.info("다음 단계 예정: ④ 세 점수를 합친 종합 매수/매도 시그널")
+    st.info("다음 단계 예정: ⑤ 24시간 감시 워커 + 텔레그램 알림")

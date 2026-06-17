@@ -1,0 +1,19 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 환경변수 / 비밀키 (절대 커밋 금지)
+.env
+.env.local
+*.key
+
+# 데이터 캐시 / 결과물
+*.csv
+data_cache/
+
+# OS / 에디터
+.DS_Store
+.vscode/
+.idea/

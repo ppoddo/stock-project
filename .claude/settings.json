@@ -3,7 +3,8 @@
     "allow": [
       "Bash(./venv/bin/pip freeze *)",
       "Bash(./venv/bin/pip install *)",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "WebSearch"
     ]
   }
 }

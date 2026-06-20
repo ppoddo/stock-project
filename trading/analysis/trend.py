@@ -112,3 +112,38 @@ def trend_score(df: pd.DataFrame) -> TrendResult:
     avg = np.mean(signals) if signals else 0.0
     score = (avg + 1) / 2 * 100  # -1~+1 -> 0~100
     return TrendResult(score=round(float(score), 1), reasons=reasons, indicators=ind)
+
+
+def trend_score_series(df: pd.DataFrame) -> pd.Series:
+    """각 날짜의 추세 점수(0~100)를 시계열로 반환한다 (백테스팅용).
+
+    trend_score() 와 '동일한 5개 신호·동일 공식'을 벡터화한 것.
+    rolling/ewm 지표는 과거만 참조하므로 look-ahead bias 가 없다.
+    각 날짜에서 계산 가능한 신호만 평균낸다(초기 구간은 신호 수가 적음).
+    """
+    ind = add_indicators(df)
+    close = ind["Close"]
+
+    def bipolar(cond: pd.Series, valid: pd.Series) -> pd.Series:
+        s = cond.astype(float) * 2 - 1          # True→+1, False→-1
+        return s.where(valid, np.nan)
+
+    # 1) 종가 > 20일선
+    s1 = bipolar(close > ind["MA20"], ind["MA20"].notna())
+    # 2) 20일선 > 60일선 (정배열)
+    s2 = bipolar(ind["MA20"] > ind["MA60"], ind["MA60"].notna())
+    # 3) RSI: 과열(>=70)=0.2, 과매도(<=30)=-0.2, 그 외 (rsi-50)/20
+    rsi = ind["RSI"]
+    s3 = np.clip((rsi - 50) / 20, -1, 1)
+    s3 = s3.where((rsi < 70) & (rsi > 30))
+    s3 = s3.mask(rsi >= 70, 0.2).mask(rsi <= 30, -0.2).where(rsi.notna(), np.nan)
+    # 4) MACD > 시그널선
+    s4 = bipolar(ind["MACD"] > ind["MACD_signal"],
+                 ind["MACD"].notna() & ind["MACD_signal"].notna())
+    # 5) 최근 20일 수익률
+    ret20 = close / close.shift(20) - 1
+    s5 = np.clip(ret20 * 5, -1, 1).where(ret20.notna(), np.nan)
+
+    signals = pd.concat([s1, s2, s3, s4, s5], axis=1)
+    avg = signals.mean(axis=1, skipna=True)     # 유효 신호만 평균
+    return ((avg + 1) / 2 * 100).round(1)

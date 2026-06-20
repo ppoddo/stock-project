@@ -1,6 +1,8 @@
 """FinanceDataReader 기반 데이터 소스 구현."""
 from __future__ import annotations
 
+import contextlib
+import io
 import re
 from datetime import date
 from functools import lru_cache
@@ -12,8 +14,17 @@ from .base import DataSource, PriceData
 
 @lru_cache(maxsize=1)
 def _krx_listing():
-    """KRX 종목 마스터(코드↔이름). 최초 1회만 받아 캐시한다."""
-    return fdr.StockListing("KRX").set_index("Code")["Name"].to_dict()
+    """KRX 종목 마스터(코드↔이름). 최초 1회만 받아 캐시한다.
+
+    KRX 서버 점검 등으로 실패하면 빈 dict 를 캐시해 재호출/노이즈를 막는다.
+    (FinanceDataReader 가 점검 페이지를 stdout 으로 흘리는 것도 억제)
+    """
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            listing = fdr.StockListing("KRX")
+        return listing.set_index("Code")["Name"].to_dict()
+    except Exception:  # noqa: BLE001 - 실패해도 코드로 동작(이름=코드)
+        return {}
 
 
 class FdrSource(DataSource):

@@ -1,6 +1,6 @@
-"""주식/ETF 분석 대시보드 (Streamlit) — 1~3단계.
+"""주식/ETF 분석 대시보드 (Streamlit) — 1~5.5단계.
 
-1단계 시장 트렌드 · 2단계 뉴스 호재 · 3단계 사용자 선호 카테고리.
+트렌드·뉴스·취향 → 종합 시그널 + 트렌드 전략 백테스팅.
 실행:  ./venv/bin/streamlit run app.py
 """
 from __future__ import annotations
@@ -13,10 +13,11 @@ from trading.news import get_news_source
 from trading.storage import get_storage
 from trading.profile import UserProfile, all_theme_names, THEMES
 from trading.signal import analyze_symbol, DEFAULT_WEIGHTS
+from trading.backtest import run_backtest
 
 st.set_page_config(page_title="AI 트레이딩 대시보드", layout="wide")
 st.title("📈 AI 트레이딩 대시보드")
-st.caption("1~4단계: 트렌드+뉴스+취향 → 종합 시그널 · 모의/백테스팅 기반 (실거래 아님)")
+st.caption("트렌드+뉴스+취향 → 종합 시그널 · 트렌드 전략 백테스팅 · 모의 기반 (실거래 아님)")
 
 storage = get_storage("local")
 data_src = get_source("fdr")
@@ -142,4 +143,35 @@ if symbol:
                 when = it.published.strftime("%m/%d") if it.published else ""
                 st.markdown(f"- [{it.title}]({it.link})  ·  {it.source} {when}")
 
-    st.info("다음 단계 예정: ⑤ 24시간 감시 워커 + 텔레그램 알림")
+    # ── 백테스트 (트렌드 전략) ─────────────────────────────
+    st.divider()
+    st.subheader("🧪 백테스트 — 추세 점수 전략")
+    st.caption("추세 점수 ≥ 매수선이면 보유, ≤ 매도선이면 현금. "
+               "과거 데이터로 검증(뉴스·선호 제외, 트렌드만). t일 신호→t+1 체결.")
+    bc1, bc2, bc3 = st.columns(3)
+    buy_th = bc1.slider("매수 임계값", 50, 90, 60, 5)
+    sell_th = bc2.slider("매도 임계값", 10, 55, 45, 5)
+    fee_pct = bc3.slider("거래비용 %", 0.0, 0.5, 0.15, 0.05)
+
+    bt = run_backtest(a.trend.indicators, buy_th=buy_th, sell_th=sell_th, fee=fee_pct / 100)
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("전략 총수익", f"{bt.total_return*100:+.1f}%",
+              f"B&H 대비 {(bt.total_return-bt.bnh_return)*100:+.1f}%p")
+    m2.metric("연복리(CAGR)", f"{bt.cagr*100:+.1f}%")
+    m3.metric("최대낙폭(MDD)", f"{bt.mdd*100:.1f}%")
+    m4.metric("샤프지수", f"{bt.sharpe:.2f}")
+    m5.metric("승률", f"{bt.win_rate*100:.0f}%", f"{bt.n_trades}회 거래")
+
+    # 자산곡선 vs Buy & Hold
+    close = a.trend.indicators["Close"]
+    bnh = close / close.iloc[0]
+    eq_fig = go.Figure()
+    eq_fig.add_trace(go.Scatter(x=bt.equity.index, y=bt.equity, name="전략",
+                                line=dict(color="#2E86DE", width=2)))
+    eq_fig.add_trace(go.Scatter(x=bnh.index, y=bnh, name="Buy & Hold",
+                                line=dict(color="gray", width=1, dash="dash")))
+    eq_fig.update_layout(height=300, margin=dict(t=10, b=10),
+                         yaxis_title="누적자산(시작=1.0)")
+    st.plotly_chart(eq_fig, use_container_width=True)
+    st.caption(f"⚠️ 단순 추세추종 전략의 과거 시뮬레이션입니다. 미래 수익을 보장하지 않으며, "
+               f"투자 판단·책임은 본인에게 있습니다. ({bt.summary()})")

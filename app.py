@@ -14,7 +14,9 @@ from trading.storage import get_storage
 from trading.profile import UserProfile, all_theme_names, THEMES
 from trading.signal import analyze_symbol, DEFAULT_WEIGHTS
 from trading.backtest import run_backtest
-from trading.paper import PaperAccount, run_paper_trading, target_universe
+from trading.paper import (
+    PaperAccount, run_paper_trading, target_universe, record_snapshot, load_equity_history,
+)
 from trading.paper.trader import to_krw
 
 st.set_page_config(page_title="AI 트레이딩 대시보드", layout="wide")
@@ -199,14 +201,31 @@ with tab_paper:
             st.warning("운용 대상이 없어요. 사이드바에서 선호 테마나 즐겨찾기를 등록하세요.")
         else:
             with st.spinner(f"{len(uni)}종목 분석·매매 중…"):
-                trades, _ = run_paper_trading(account, profile, data_src, news_src, uni)
+                trades, px = run_paper_trading(account, profile, data_src, news_src, uni)
                 storage.save_profile(account.to_dict(), PAPER_KEY)
+                record_snapshot(storage, account, px)  # 자산 시계열 누적
             st.success(f"체결 {len(trades)}건 완료!")
             st.cache_data.clear()
             st.rerun()
     if b2.button("♻️ 계좌 초기화 (가상자본 리셋)", use_container_width=True):
         storage.save_profile(PaperAccount().to_dict(), PAPER_KEY)
         st.rerun()
+
+    # 자산곡선 (저널 시계열 — 며칠 굴릴수록 풍부해짐)
+    eq_hist = load_equity_history(storage)
+    if len(eq_hist) >= 2:
+        st.markdown("**자산 추이**")
+        dates = [h["date"] for h in eq_hist]
+        totals = [h["total"] for h in eq_hist]
+        jf = go.Figure()
+        jf.add_trace(go.Scatter(x=dates, y=totals, name="총자산", fill="tozeroy",
+                                line=dict(color="#2E86DE", width=2)))
+        jf.add_hline(y=account.initial_capital, line=dict(color="gray", dash="dash"),
+                     annotation_text="초기자본")
+        jf.update_layout(height=260, margin=dict(t=10, b=10), yaxis_title="총자산(원)")
+        st.plotly_chart(jf, use_container_width=True)
+    elif eq_hist:
+        st.caption(f"📈 자산 추이 그래프는 데이터가 2일 이상 쌓이면 표시돼요 (현재 {len(eq_hist)}개 기록).")
 
     if account.holdings:
         st.markdown("**보유 종목**")

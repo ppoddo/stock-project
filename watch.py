@@ -24,7 +24,9 @@ from trading.news import get_news_source
 from trading.storage import get_storage
 from trading.notify import get_notifier, TelegramNotifier
 from trading.profile import UserProfile
-from trading.paper import PaperAccount, run_paper_trading, target_universe, build_summary
+from trading.paper import (
+    PaperAccount, run_paper_trading, target_universe, build_summary, record_snapshot,
+)
 
 load_dotenv()
 
@@ -96,6 +98,7 @@ def watch_loop(once: bool) -> None:
             ts = datetime.now().strftime("%H:%M:%S")
             trades, prices = run_paper_trading(account, profile, data_src, news_src, symbols)
             storage.save_profile(account.to_dict(), PAPER_KEY)
+            record_snapshot(storage, account, prices)  # 자산 시계열 누적(그래프 분석용)
             tv = account.total_value(prices)
             print(f"[{ts}] 운용 {len(symbols)}종목 · 체결 {len(trades)}건 · "
                   f"총자산 {tv:,.0f}원 ({account.total_return(prices)*100:+.2f}%)")

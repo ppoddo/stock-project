@@ -1,8 +1,11 @@
-"""24시간 감시 워커 실행 진입점.
+"""24시간 모의투자 자동운용 워커 실행 진입점.
+
+펀드매니저식: 관심종목을 분석해 시그널대로 가상계좌를 자동 매매하고,
+하루/일주일에 한 번 텔레그램으로 요약 리포트를 보낸다. (실거래 아님)
 
 사용법:
   ./venv/bin/python watch.py --get-chat-id   # 텔레그램 chat_id 확인
-  ./venv/bin/python watch.py --once          # 한 번만 점검 (테스트)
+  ./venv/bin/python watch.py --once          # 한 번만 운용 + 요약 (테스트)
   ./venv/bin/python watch.py                 # 무한 루프 (기본 간격으로 반복)
 
 환경변수(.env): TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, WATCH_INTERVAL_MIN
@@ -12,7 +15,7 @@ from __future__ import annotations
 import argparse
 import os
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from dotenv import load_dotenv
 
@@ -21,9 +24,12 @@ from trading.news import get_news_source
 from trading.storage import get_storage
 from trading.notify import get_notifier, TelegramNotifier
 from trading.profile import UserProfile
-from trading.monitor import run_watch
+from trading.paper import PaperAccount, run_paper_trading, target_universe, build_summary
 
 load_dotenv()
+
+PAPER_KEY = "_paper"          # 가상계좌 저장 키
+REPORT_KEY = "_report_state"  # 요약 발송 상태 키
 
 
 def get_chat_id() -> None:
@@ -45,38 +51,66 @@ def get_chat_id() -> None:
     print("\n→ 위 chat_id 를 .env 의 TELEGRAM_CHAT_ID 에 넣으세요.")
 
 
+def maybe_send_summary(account, prices, notifier, storage, force_daily=False) -> list[str]:
+    """날짜/주차가 바뀌면 일일·주간 요약을 발송한다(중복 방지)."""
+    state = storage.load_profile(REPORT_KEY)
+    today = date.today()
+    today_s = today.isoformat()
+    week_s = f"{today.isocalendar().year}-W{today.isocalendar().week:02d}"
+    sent: list[str] = []
+
+    if force_daily or state.get("last_daily") != today_s:
+        today_trades = [h for h in account.history if h["date"].startswith(today_s)]
+        notifier.send(build_summary(account, prices, "일일", today_trades))
+        state["last_daily"] = today_s
+        sent.append("일일")
+
+    if state.get("last_weekly") != week_s:
+        monday = (today - timedelta(days=today.weekday())).isoformat()
+        week_trades = [h for h in account.history if h["date"] >= monday]
+        notifier.send(build_summary(account, prices, "주간", week_trades))
+        state["last_weekly"] = week_s
+        sent.append("주간")
+
+    storage.save_profile(state, REPORT_KEY)
+    return sent
+
+
 def watch_loop(once: bool) -> None:
     data_src = get_source("fdr")
     news_src = get_news_source("google")
     storage = get_storage("local")
     notifier = get_notifier("auto")
 
-    profile = UserProfile.from_dict(storage.load_profile())
+    account = PaperAccount.from_dict(storage.load_profile(PAPER_KEY))
     interval = int(os.getenv("WATCH_INTERVAL_MIN", "30")) * 60
-
-    ch = "텔레그램" if notifier.ready and notifier.__class__.__name__ == "TelegramNotifier" else "콘솔(텔레그램 미설정)"
-    print(f"감시 시작 · 알림채널: {ch} · 간격: {interval//60}분")
+    ch = "텔레그램" if notifier.__class__.__name__ == "TelegramNotifier" else "콘솔(텔레그램 미설정)"
+    print(f"모의투자 자동운용 시작 · 알림: {ch} · 간격: {interval//60}분 · 현금 {account.cash:,.0f}원")
 
     while True:
-        symbols = sorted(set(profile.favorites))  # 즐겨찾기를 관심종목으로
+        profile = UserProfile.from_dict(storage.load_profile())
+        symbols = target_universe(profile)
         if not symbols:
-            print("⚠️ 즐겨찾기 종목이 없습니다. 대시보드에서 ⭐ 등록 후 다시 실행하세요.")
+            print("⚠️ 운용 대상 없음. 대시보드에서 ⭐ 즐겨찾기나 선호 테마를 등록하세요.")
         else:
             ts = datetime.now().strftime("%H:%M:%S")
-            report = run_watch(symbols, profile, data_src, news_src, notifier, storage)
-            print(f"[{ts}] 점검 {len(report.checked)} · 알림 {len(report.alerted)}"
-                  + (f" {report.alerted}" if report.alerted else "")
-                  + (f" · 오류 {report.errors}" if report.errors else ""))
+            trades, prices = run_paper_trading(account, profile, data_src, news_src, symbols)
+            storage.save_profile(account.to_dict(), PAPER_KEY)
+            tv = account.total_value(prices)
+            print(f"[{ts}] 운용 {len(symbols)}종목 · 체결 {len(trades)}건 · "
+                  f"총자산 {tv:,.0f}원 ({account.total_return(prices)*100:+.2f}%)")
+            sent = maybe_send_summary(account, prices, notifier, storage, force_daily=once)
+            if sent:
+                print(f"        → {'/'.join(sent)} 요약 발송")
         if once:
             break
         time.sleep(interval)
-        profile = UserProfile.from_dict(storage.load_profile())  # 매 주기 프로필 갱신
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="24시간 시그널 감시 워커")
+    ap = argparse.ArgumentParser(description="24시간 모의투자 자동운용 워커")
     ap.add_argument("--get-chat-id", action="store_true", help="텔레그램 chat_id 확인")
-    ap.add_argument("--once", action="store_true", help="한 번만 점검하고 종료")
+    ap.add_argument("--once", action="store_true", help="한 번만 운용 + 요약 발송")
     args = ap.parse_args()
 
     if args.get_chat_id:

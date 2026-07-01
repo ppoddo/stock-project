@@ -1,0 +1,21 @@
+# systemd 서비스 — 모의투자 자동운용 워커 24시간 구동
+# 설치: DEPLOY.md 참고. VM 사용자가 ubuntu 가 아니면 User/경로를 바꾸세요.
+[Unit]
+Description=AI Trading paper-trading watcher (watch.py)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/stock-project
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ubuntu/stock-project/venv/bin/python watch.py
+# 크래시/재부팅 시 자동 재시작 (30초 후)
+Restart=always
+RestartSec=30
+StandardOutput=append:/home/ubuntu/stock-project/watch.log
+StandardError=append:/home/ubuntu/stock-project/watch.log
+
+[Install]
+WantedBy=multi-user.target

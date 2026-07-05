@@ -7,11 +7,17 @@ from __future__ import annotations
 from datetime import datetime
 
 from .account import PaperAccount
+from .analytics import name_of
 
 
 def build_summary(account: PaperAccount, prices: dict[str, float],
-                  period: str = "일일", recent_trades: list[dict] | None = None) -> str:
-    """보유 현황 + 수익률 요약 메시지를 만든다."""
+                  period: str = "일일", recent_trades: list[dict] | None = None,
+                  equity_history: list[dict] | None = None) -> str:
+    """보유 현황 + 수익률 요약 메시지를 만든다.
+
+    equity_history 를 넘기면 성과 진단 한 줄(섹터 집중·최대 손실 등)을 함께 표기한다.
+    미전달 시 기존과 동일하게 동작(진단 줄 생략).
+    """
     total = account.total_value(prices)
     ret = account.total_return(prices)
     sign = "🔺" if ret >= 0 else "🔻"
@@ -23,18 +29,24 @@ def build_summary(account: PaperAccount, prices: dict[str, float],
         f"현금 {account.cash:,.0f}원 · 보유 {len(account.holdings)}종목",
     ]
 
+    # 성과 진단 한 줄 — 섹터 집중 경고 우선, 없으면 최대 손실 종목 (equity_history 전달 시)
+    if equity_history is not None or account.holdings:
+        from .analytics import analyze_performance  # 순환 import 방지 지역 import
+        perf = analyze_performance(account, prices, equity_history)
+        diag = next((r for r in perf.reasons if r.startswith("⚠️")), None)
+        if diag is None and perf.worst is not None and perf.worst.pnl < 0:
+            diag = (f"최대 손실 {perf.worst.name} "
+                    f"{perf.worst.pnl_pct*100:+.1f}% ({perf.worst.pnl:,.0f}원)")
+        if diag:
+            lines.append(f"🩺 {diag}")
+
     if account.holdings:
         lines.append("\n<b>보유 종목</b>")
         for sym, h in account.holdings.items():
             px = prices.get(sym, h.avg_price)
             pnl, pnl_pct = account.position_pnl(sym, px)
             mark = "🔺" if pnl >= 0 else "🔻"
-            name = sym
-            # history에서 종목명 보강
-            for rec in reversed(account.history):
-                if rec["symbol"] == sym and rec.get("name"):
-                    name = rec["name"]
-                    break
+            name = name_of(account, sym)  # history 역순에서 종목명 보강
             lines.append(f"· {name} {h.shares}주 · 평단 {h.avg_price:,.0f} "
                          f"→ {px:,.0f}  {mark}{pnl_pct*100:+.1f}%")
 

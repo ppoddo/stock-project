@@ -3,9 +3,11 @@ from .account import PaperAccount, Holding, DEFAULT_CAPITAL
 from .trader import run_paper_trading, target_universe
 from .report import build_summary
 from .journal import record_snapshot, load_equity_history, EQUITY_KEY
+from .analytics import analyze_performance, PerformanceReport, PositionPnL, name_of
 
 __all__ = [
     "PaperAccount", "Holding", "DEFAULT_CAPITAL",
     "run_paper_trading", "target_universe", "build_summary",
     "record_snapshot", "load_equity_history", "EQUITY_KEY",
+    "analyze_performance", "PerformanceReport", "PositionPnL", "name_of",
 ]

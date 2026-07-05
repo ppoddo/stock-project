@@ -43,3 +43,11 @@ class DataSource(ABC):
     def get_name(self, symbol: str) -> str:
         """종목코드를 표시용 이름으로 바꾼다. 뉴스 검색어로도 쓰인다."""
         raise NotImplementedError
+
+    def get_fx(self, pair: str = "USD/KRW") -> float | None:
+        """환율을 조회한다. 실패/미지원 시 None.
+
+        기본 구현은 None(선택 기능) — 다른/미래 소스가 강제 구현하지 않아도 되게
+        추상 아닌 일반 메서드로 둔다. 전략 코드는 이 메서드만 호출하고 폴백을 갖는다.
+        """
+        return None

@@ -16,6 +16,7 @@ from trading.signal import analyze_symbol, DEFAULT_WEIGHTS
 from trading.backtest import run_backtest
 from trading.paper import (
     PaperAccount, run_paper_trading, target_universe, record_snapshot, load_equity_history,
+    analyze_performance,
 )
 from trading.paper.trader import to_krw
 
@@ -211,10 +212,10 @@ with tab_paper:
         storage.save_profile(PaperAccount().to_dict(), PAPER_KEY)
         st.rerun()
 
-    # 자산곡선 (저널 시계열 — 며칠 굴릴수록 풍부해짐)
+    # 자산곡선 + 드로다운 (저널 시계열 — 며칠 굴릴수록 풍부해짐)
     eq_hist = load_equity_history(storage)
     if len(eq_hist) >= 2:
-        st.markdown("**자산 추이**")
+        st.markdown("**📈 자산 추이 · 드로다운**")
         dates = [h["date"] for h in eq_hist]
         totals = [h["total"] for h in eq_hist]
         jf = go.Figure()
@@ -224,8 +225,37 @@ with tab_paper:
                      annotation_text="초기자본")
         jf.update_layout(height=260, margin=dict(t=10, b=10), yaxis_title="총자산(원)")
         st.plotly_chart(jf, use_container_width=True)
+
+        # 드로다운 곡선 (러닝 피크 대비 하락률)
+        peak, dd = float("-inf"), []
+        for t in totals:
+            peak = max(peak, t)
+            dd.append((t / peak - 1.0) * 100 if peak > 0 else 0.0)
+        df_fig = go.Figure()
+        df_fig.add_trace(go.Scatter(x=dates, y=dd, name="드로다운", fill="tozeroy",
+                                    line=dict(color="#E74C3C", width=1.5)))
+        df_fig.update_layout(height=180, margin=dict(t=10, b=10), yaxis_title="낙폭(%)")
+        st.plotly_chart(df_fig, use_container_width=True)
     elif eq_hist:
         st.caption(f"📈 자산 추이 그래프는 데이터가 2일 이상 쌓이면 표시돼요 (현재 {len(eq_hist)}개 기록).")
+
+    # 📊 성과 진단 리포트 (mark-to-market + 종목별 기여 + 원인 분석)
+    report = analyze_performance(account, prices, eq_hist)
+    st.markdown("**📊 성과 진단**")
+    for reason in report.reasons:
+        st.caption(f"· {reason}")
+    if report.data_sufficient:
+        st.caption(f"· 최대낙폭(MDD) {report.mdd*100:.1f}% · 자산 기록 {report.days_tracked}일")
+    if report.positions:
+        contrib = go.Figure()
+        contrib.add_trace(go.Bar(
+            x=[f"{p.name}({p.symbol})" for p in report.positions],
+            y=[p.pnl for p in report.positions],
+            marker_color=["#E74C3C" if p.pnl < 0 else "#2ECC71" for p in report.positions],
+            text=[f"{p.pnl_pct*100:+.1f}%" for p in report.positions],
+        ))
+        contrib.update_layout(height=220, margin=dict(t=10, b=10), yaxis_title="평가손익(원)")
+        st.plotly_chart(contrib, use_container_width=True)
 
     if account.holdings:
         st.markdown("**보유 종목**")

@@ -21,3 +21,4 @@ data_store/
 .DS_Store
 .vscode/
 .idea/
+.claude/settings.local.json

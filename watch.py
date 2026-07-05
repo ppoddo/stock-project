@@ -26,6 +26,7 @@ from trading.notify import get_notifier, TelegramNotifier
 from trading.profile import UserProfile
 from trading.paper import (
     PaperAccount, run_paper_trading, target_universe, build_summary, record_snapshot,
+    load_equity_history,
 )
 
 load_dotenv()
@@ -60,17 +61,18 @@ def maybe_send_summary(account, prices, notifier, storage, force_daily=False) ->
     today_s = today.isoformat()
     week_s = f"{today.isocalendar().year}-W{today.isocalendar().week:02d}"
     sent: list[str] = []
+    eq = load_equity_history(storage)  # 성과 진단(MDD·섹터집중)용 자산 시계열
 
     if force_daily or state.get("last_daily") != today_s:
         today_trades = [h for h in account.history if h["date"].startswith(today_s)]
-        notifier.send(build_summary(account, prices, "일일", today_trades))
+        notifier.send(build_summary(account, prices, "일일", today_trades, equity_history=eq))
         state["last_daily"] = today_s
         sent.append("일일")
 
     if state.get("last_weekly") != week_s:
         monday = (today - timedelta(days=today.weekday())).isoformat()
         week_trades = [h for h in account.history if h["date"] >= monday]
-        notifier.send(build_summary(account, prices, "주간", week_trades))
+        notifier.send(build_summary(account, prices, "주간", week_trades, equity_history=eq))
         state["last_weekly"] = week_s
         sent.append("주간")
 

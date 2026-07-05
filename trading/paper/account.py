@@ -8,8 +8,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from ..config import FEE  # 거래비용(왕복 근사) — 단일 출처(config)
+
 DEFAULT_CAPITAL = 10_000_000  # 초기 가상자본 (원)
-FEE = 0.0015                  # 거래비용(왕복 근사) — 백테스트와 동일 가정
 
 
 @dataclass
@@ -18,9 +19,11 @@ class Holding:
 
     shares: int
     avg_price: float          # 평균 매입가
+    peak_price: float = 0.0   # 보유 중 고점(트레일링 스탑용) — WP2. 미저장 구데이터는 0.0
 
     def to_dict(self) -> dict:
-        return {"shares": self.shares, "avg_price": self.avg_price}
+        return {"shares": self.shares, "avg_price": self.avg_price,
+                "peak_price": self.peak_price}
 
 
 @dataclass
@@ -31,6 +34,7 @@ class PaperAccount:
     initial_capital: float = DEFAULT_CAPITAL
     holdings: dict[str, Holding] = field(default_factory=dict)
     history: list[dict] = field(default_factory=list)
+    cooldowns: dict[str, str] = field(default_factory=dict)  # symbol -> 마지막 손절일 ISO date (WP2 재진입 쿨다운)
 
     # ── 매매 ──────────────────────────────────────────
     def buy(self, symbol: str, price: float, krw_amount: float, name: str = "") -> dict | None:
@@ -53,21 +57,30 @@ class PaperAccount:
             h.shares = total
         else:
             self.holdings[symbol] = Holding(shares=shares, avg_price=price)
+        # 트레일링 스탑용 고점 초기화/갱신 (WP2)
+        h = self.holdings[symbol]
+        h.peak_price = max(h.peak_price or 0.0, price)
         return self._record(symbol, name, "매수", shares, price, cost)
 
-    def sell(self, symbol: str, price: float, name: str = "") -> dict | None:
-        """보유 전량 매도. 체결 내역 dict 반환(미보유 시 None)."""
+    def sell(self, symbol: str, price: float, name: str = "",
+             reason: str = "시그널") -> dict | None:
+        """보유 전량 매도. 체결 내역 dict 반환(미보유 시 None).
+
+        reason: 매도 사유(시그널/손절/트레일링 등) — 리포트·저널에 노출(WP2).
+        """
         h = self.holdings.get(symbol)
         if not h or h.shares <= 0:
             return None
         proceeds = h.shares * price * (1 - FEE)
         pnl = proceeds - h.shares * h.avg_price
         self.cash += proceeds
-        rec = self._record(symbol, name, "매도", h.shares, price, proceeds, pnl=pnl)
+        rec = self._record(symbol, name, "매도", h.shares, price, proceeds,
+                           pnl=pnl, reason=reason)
         del self.holdings[symbol]
         return rec
 
-    def _record(self, symbol, name, action, shares, price, amount, pnl=None) -> dict:
+    def _record(self, symbol, name, action, shares, price, amount,
+                pnl=None, reason=None) -> dict:
         rec = {
             "date": datetime.now().isoformat(timespec="seconds"),
             "symbol": symbol, "name": name, "action": action,
@@ -75,6 +88,8 @@ class PaperAccount:
         }
         if pnl is not None:
             rec["pnl"] = round(pnl, 0)
+        if reason is not None:
+            rec["reason"] = reason
         self.history.append(rec)
         return rec
 
@@ -109,6 +124,7 @@ class PaperAccount:
             "initial_capital": self.initial_capital,
             "holdings": {s: h.to_dict() for s, h in self.holdings.items()},
             "history": self.history,
+            "cooldowns": self.cooldowns,
         }
 
     @classmethod
@@ -120,4 +136,5 @@ class PaperAccount:
             initial_capital=data.get("initial_capital", DEFAULT_CAPITAL),
             holdings={s: Holding(**h) for s, h in data.get("holdings", {}).items()},
             history=data.get("history", []),
+            cooldowns=data.get("cooldowns", {}),  # 구 데이터 호환
         )

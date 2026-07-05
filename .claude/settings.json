@@ -1,17 +1,27 @@
 {
   "permissions": {
     "allow": [
-      "Bash(./venv/bin/pip freeze *)",
-      "Bash(./venv/bin/pip install *)",
-      "Bash(echo \"EXIT:$?\")",
-      "WebSearch",
-      "Bash(./venv/bin/streamlit run *)",
-      "Bash(curl -s -o /dev/null -w \"Streamlit HTTP %{http_code}\\\\n\" http://localhost:8599)",
-      "Read(//tmp/**)",
-      "Bash(kill %1)",
-      "Bash(git add *)",
-      "Bash(git commit -q -m '모의투자 자산 저널 — 일별 시계열 누적 \\(그래프 분석용 데이터 수집\\) *)",
-      "Bash(git push *)"
+      "Bash(./venv/bin/python *)",
+      "Bash(bash scripts/check.sh)",
+      "Bash(bash scripts/guard.sh)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/guard.sh",
+            "timeout": 15,
+            "statusMessage": "안전규칙 가드 검사"
+          }
+        ]
+      }
     ]
   }
 }

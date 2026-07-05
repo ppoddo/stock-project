@@ -47,6 +47,16 @@ THEMES: dict[str, dict] = {
         "emoji": "🏢",
         "symbols": {"AAPL", "MSFT", "AMZN", "GOOGL", "META", "NVDA"},
     },
+    "클라우드/SaaS": {
+        "emoji": "☁️",
+        "symbols": {"018260", "012510", "030520",  # 삼성에스디에스, 더존비즈온, 한글과컴퓨터
+                    "ORCL", "CRM", "NOW", "ADBE", "SNOW"},
+    },
+    "게임/콘텐츠": {
+        "emoji": "🎮",
+        "symbols": {"259960", "036570", "251270", "352820",  # 크래프톤, 엔씨소프트, 넷마블, 하이브
+                    "RBLX", "EA", "NFLX"},
+    },
 }
 
 

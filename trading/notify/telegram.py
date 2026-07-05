@@ -43,13 +43,20 @@ class TelegramNotifier(Notifier):
         except requests.RequestException:
             return False
 
-    def get_updates(self) -> list[dict]:
-        """최근 수신 메시지 목록 (chat_id 확인용 헬퍼)."""
+    def get_updates(self, offset: int | None = None, timeout: int = 0) -> list[dict]:
+        """수신 메시지 목록. offset 이후만, timeout>0 이면 장기폴링(명령 수신용).
+
+        offset 미지정 호출(chat_id 확인용)은 읽음 확정을 하지 않아 안전하다.
+        ※ getUpdates 는 봇당 동시 1곳만 폴링 가능 — 워커(VM) 구동 중 로컬에서 또 돌리면 409.
+        """
         if not self.token:
             return []
         url = _API.format(token=self.token, method="getUpdates")
+        params: dict = {"timeout": timeout}
+        if offset is not None:
+            params["offset"] = offset
         try:
-            r = requests.get(url, timeout=10)
+            r = requests.get(url, params=params, timeout=timeout + 10)
             return r.json().get("result", []) if r.status_code == 200 else []
         except requests.RequestException:
             return []

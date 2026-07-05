@@ -20,6 +20,7 @@ import argparse
 import os
 import time
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
@@ -37,6 +38,9 @@ load_dotenv()
 
 PAPER_KEY = "_paper"          # 가상계좌 저장 키
 REPORT_KEY = "_report_state"  # 요약 발송 상태 키
+
+KST = ZoneInfo("Asia/Seoul")             # 서버(VM)가 UTC 라서 한국시 명시
+REPORT_HOURS_KST = (9, 12, 15, 18, 21)   # 하루 5회 정기 리포트 시각(한국시)
 
 
 def get_chat_id() -> None:
@@ -58,20 +62,31 @@ def get_chat_id() -> None:
     print("\n→ 위 chat_id 를 .env 의 TELEGRAM_CHAT_ID 에 넣으세요.")
 
 
-def maybe_send_summary(account, prices, notifier, storage, force_daily=False) -> list[str]:
-    """날짜/주차가 바뀌면 일일·주간 요약을 발송한다(중복 방지)."""
+def maybe_send_summary(account, prices, notifier, storage,
+                       force_daily=False, now: datetime | None = None) -> list[str]:
+    """정기(한국시 09/12/15/18/21시)·주간 요약을 발송한다(슬롯당 1회, 중복 방지).
+
+    재시작 등으로 슬롯 시각을 지나쳤으면 가장 최근 슬롯 1회만 캐치업 발송.
+    now 는 테스트 주입용(기본: 현재 한국시).
+    """
     state = storage.load_profile(REPORT_KEY)
-    today = date.today()
+    now = now or datetime.now(KST)
+    today = now.date()
     today_s = today.isoformat()
     week_s = f"{today.isocalendar().year}-W{today.isocalendar().week:02d}"
     sent: list[str] = []
     eq = load_equity_history(storage)  # 성과 진단(MDD·섹터집중)용 자산 시계열
 
-    if force_daily or state.get("last_daily") != today_s:
+    # 정기 리포트: 지나온 슬롯 중 최신 것 1회 (오늘 아직 슬롯 전이면 없음)
+    passed = [h for h in REPORT_HOURS_KST if h <= now.hour]
+    slot_key = f"{today_s}T{passed[-1]:02d}" if passed else None
+    if force_daily or (slot_key and state.get("last_slot") != slot_key):
+        label = f"{passed[-1]:02d}시" if passed else "수동"
         today_trades = [h for h in account.history if h["date"].startswith(today_s)]
-        notifier.send(build_summary(account, prices, "일일", today_trades, equity_history=eq))
-        state["last_daily"] = today_s
-        sent.append("일일")
+        notifier.send(build_summary(account, prices, label, today_trades, equity_history=eq))
+        if slot_key:
+            state["last_slot"] = slot_key
+        sent.append(label)
 
     if state.get("last_weekly") != week_s:
         monday = (today - timedelta(days=today.weekday())).isoformat()
@@ -172,6 +187,14 @@ def watch_loop(once: bool) -> None:
             if once:
                 break
             next_run = time.time() + interval
+
+        # 정기 리포트 슬롯 체크 — 사이클(30분)과 무관하게 정시 부근 발송 (일시정지 중에도)
+        try:
+            sent = maybe_send_summary(account, status_prices(), notifier, storage)
+            if sent:
+                print(f"        → {'/'.join(sent)} 리포트 발송")
+        except Exception as e:  # noqa: BLE001 - 리포트 실패가 워커를 죽이지 않게
+            print(f"[리포트] 발송 오류(무시하고 계속): {e}")
 
         # 다음 사이클까지 텔레그램 명령 수신 (장기폴링 ~20초 단위)
         if tg:

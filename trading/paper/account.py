@@ -20,10 +20,11 @@ class Holding:
     shares: int
     avg_price: float          # 평균 매입가
     peak_price: float = 0.0   # 보유 중 고점(트레일링 스탑용) — WP2. 미저장 구데이터는 0.0
+    buy_date: str | None = None  # 마지막 매수 시각 ISO — 최소보유기간 판정용. 구데이터는 None(제한 없음)
 
     def to_dict(self) -> dict:
         return {"shares": self.shares, "avg_price": self.avg_price,
-                "peak_price": self.peak_price}
+                "peak_price": self.peak_price, "buy_date": self.buy_date}
 
 
 @dataclass
@@ -57,9 +58,10 @@ class PaperAccount:
             h.shares = total
         else:
             self.holdings[symbol] = Holding(shares=shares, avg_price=price)
-        # 트레일링 스탑용 고점 초기화/갱신 (WP2)
+        # 트레일링 스탑용 고점 초기화/갱신 (WP2) + 최소보유기간 기준일 갱신
         h = self.holdings[symbol]
         h.peak_price = max(h.peak_price or 0.0, price)
+        h.buy_date = datetime.now().isoformat(timespec="seconds")
         return self._record(symbol, name, "매수", shares, price, cost)
 
     def sell(self, symbol: str, price: float, name: str = "",

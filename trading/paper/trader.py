@@ -7,7 +7,8 @@ WP2 수식 개선:
   - 손절/트레일링 스탑으로 강제 청산(시그널과 무관하게 손실 확대 차단).
   - 매도 판정은 선호도 제외 재가중 점수(sell_signal) 기준 — 하락 종목을 선호가 떠받치던 구조 제거.
   - 실시간 환율(USD/KRW) 조회, 실패 시 폴백.
-  - 손절 후 재진입 쿨다운(영업일 N일).
+  - 매도(모든 사유) 후 재진입 쿨다운(영업일 N일).
+  - 매수 후 최소 보유기간(영업일) 내 시그널 매도 보류 — 장중 왕복 방지(손절은 예외).
 ⚠️ 가상계좌 전용. 실거래 아님.
 """
 from __future__ import annotations
@@ -18,6 +19,7 @@ import numpy as np
 
 from ..config import (
     FX_USD_KRW_FALLBACK,
+    MIN_HOLD_BDAYS,
     POSITION_PCT,
     REENTRY_COOLDOWN_DAYS,
     STOP_LOSS_PCT,
@@ -116,11 +118,16 @@ def run_paper_trading(account: PaperAccount, profile: UserProfile,
             trades.append(rec)
 
     # 4) 시그널 매도 — 선호 제외 매도점수 기준 (남은 보유 종목)
+    #    매수 후 MIN_HOLD_BDAYS 영업일 내엔 보류 — 장중 점수 흔들림에 의한
+    #    당일 매수→매도 왕복 방지(2026-07-08 회고). 손절·트레일링(3단계)은 예외 없이 동작.
     for sym, (buy_act, sell_act, name) in actions.items():
         if sym in account.holdings and sell_act == "매도":
+            if in_cooldown(account.holdings[sym].buy_date, today, MIN_HOLD_BDAYS):
+                continue  # 최소 보유기간 미경과 — 시그널 매도 보류
             rec = account.sell(sym, prices[sym], name=name, reason="시그널(선호제외)")
             if rec:
                 trades.append(rec)
+                account.cooldowns[sym] = today  # 모든 매도에 재매수 쿨다운(왕복 방지)
 
     # 5) 시그널 매수 — 미보유 + 매수시그널 + 쿨다운 경과
     budget = account.initial_capital * pos_pct

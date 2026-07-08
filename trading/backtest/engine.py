@@ -73,7 +73,8 @@ def _win_rate(position: pd.Series, close: pd.Series) -> tuple[float, int]:
 def run_backtest(df: pd.DataFrame, score_series: pd.Series | None = None,
                  buy_th: float | None = None, sell_th: float | None = None,
                  fee: float | None = None,
-                 stop_loss: float | None = None) -> BacktestResult:
+                 stop_loss: float | None = None,
+                 min_hold_days: int | None = None) -> BacktestResult:
     """추세 점수 전략을 백테스트한다.
 
     score_series 를 주면 그걸로, 없으면 trend_score_series(df) 로 신호를 만든다.
@@ -81,6 +82,8 @@ def run_backtest(df: pd.DataFrame, score_series: pd.Series | None = None,
     stop_loss(예 0.08) 를 주면 손절을 백테스트에도 반영한다(모의투자와 일관):
       진입가 대비 t일 종가 수익률이 -stop_loss 이하면 t+1일 강제 청산(look-ahead 유지),
       이후 새 매수신호가 나기 전까지 현금 유지.
+    min_hold_days(예 2) 를 주면 진입 후 그 일수 동안 '시그널 매도'를 무시하고 보유를
+      유지한다(왕복매매 축소 검증용). 손절(stop_loss)은 최소보유와 무관하게 항상 동작.
     """
     # config 기본값 적용 (단일 출처)
     buy_th = BT_BUY_TH if buy_th is None else buy_th
@@ -99,6 +102,22 @@ def run_backtest(df: pd.DataFrame, score_series: pd.Series | None = None,
 
     # 2) t일 신호 → t+1일 체결 (look-ahead 방지)
     position = target.shift(1).fillna(0.0)
+
+    # 2.3) 최소 보유기간 — 진입 후 min_hold_days 일 안의 '시그널 청산'은 무시(보유 연장).
+    #      과거 정보(진입 시점)만 쓰므로 look-ahead 없음. 손절은 아래 2.5에서 별도 처리.
+    if min_hold_days is not None and min_hold_days > 0:
+        pos_vals = position.to_numpy(copy=True)
+        entry_i = None
+        for i in range(len(pos_vals)):
+            if pos_vals[i] == 1.0:
+                if entry_i is None:
+                    entry_i = i
+            else:
+                if entry_i is not None and (i - entry_i) < min_hold_days:
+                    pos_vals[i] = 1.0   # 아직 최소 보유기간 — 청산 보류
+                else:
+                    entry_i = None
+        position = pd.Series(pos_vals, index=position.index)
 
     # 2.5) 손절 반영 — 진입가 대비 t일 손실이 -stop_loss 이하면 t+1일 강제 청산.
     #     look-ahead 유지: t일 종가로 판정 → t+1일부터 현금(다음 매수신호까지).

@@ -20,13 +20,22 @@ class TestSerialization(unittest.TestCase):
         self.assertAlmostEqual(b.cash, a.cash)
 
     def test_구버전_데이터_호환(self):
-        """peak_price·cooldowns 없던 WP2 이전 저장본도 읽혀야 한다(VM 데이터)."""
+        """peak_price·cooldowns·buy_date 없던 이전 저장본도 읽혀야 한다(VM 데이터)."""
         old = {"cash": 5_000_000, "initial_capital": 10_000_000,
                "holdings": {"X": {"shares": 2, "avg_price": 100.0}}, "history": []}
         a = PaperAccount.from_dict(old)
         self.assertEqual(a.holdings["X"].shares, 2)
         self.assertEqual(a.holdings["X"].peak_price, 0.0)
+        self.assertIsNone(a.holdings["X"].buy_date)   # 구데이터 → 최소보유 제한 없음
         self.assertEqual(a.cooldowns, {})
+
+    def test_매수시_buy_date_기록(self):
+        """최소 보유기간 판정 기준일 — 매수(추가매수 포함) 시각이 기록돼야 한다."""
+        a = PaperAccount()
+        a.buy("A", 100.0, krw_amount=10_000)
+        self.assertIsNotNone(a.holdings["A"].buy_date)
+        b = PaperAccount.from_dict(a.to_dict())      # 직렬화에도 보존
+        self.assertEqual(b.holdings["A"].buy_date, a.holdings["A"].buy_date)
 
 
 class TestTradingRules(unittest.TestCase):

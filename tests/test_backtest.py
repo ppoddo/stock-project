@@ -59,6 +59,29 @@ class TestStopLoss(unittest.TestCase):
         self.assertAlmostEqual(r.total_return, -0.10, places=6)
 
 
+class TestMinHold(unittest.TestCase):
+    def test_최소보유기간내_시그널청산_보류(self):
+        """진입 직후 매도신호가 떠도 min_hold_days 동안은 보유 유지(왕복 방지)."""
+        closes = [100, 100, 100, 110, 120, 120]
+        df = make_df(closes)
+        s = scores([70, 30, 30, 30, 30, 30], df)   # idx0 매수 → idx1부터 즉시 매도신호
+        no_hold = run_backtest(df, score_series=s, buy_th=60, sell_th=40, fee=0.0)
+        held = run_backtest(df, score_series=s, buy_th=60, sell_th=40,
+                            fee=0.0, min_hold_days=3)
+        # 보유연장 없으면 idx1 진입→idx2 청산(수익 0), 3일 보유 시 idx3 +10% 흡수
+        self.assertAlmostEqual(no_hold.total_return, 0.0, places=6)
+        self.assertGreater(held.total_return, 0.09)
+
+    def test_최소보유중에도_손절은_동작(self):
+        """최소 보유기간은 시그널 매도만 보류 — 손절은 리스크 차단이라 예외 없다."""
+        closes = [100, 100, 90, 50, 50, 50]
+        df = make_df(closes)
+        s = scores([70] * 6, df)
+        r = run_backtest(df, score_series=s, buy_th=60, sell_th=40,
+                         fee=0.0, stop_loss=0.08, min_hold_days=5)
+        self.assertAlmostEqual(r.total_return, -0.10, places=6)  # 손절 없인 -50%
+
+
 class TestDefaults(unittest.TestCase):
     def test_기본_임계값은_config에서(self):
         from trading.config import BT_BUY_TH, BT_SELL_TH

@@ -30,6 +30,7 @@ from ..news.base import NewsSource
 from ..profile import UserProfile, THEMES
 from ..signal import analyze_symbol
 from .account import PaperAccount
+from .thesis import build_thesis
 
 
 def resolve_fx(data_source: DataSource) -> float:
@@ -76,8 +77,8 @@ def run_paper_trading(account: PaperAccount, profile: UserProfile,
     symbols = symbols or target_universe(profile)
     trades: list[dict] = []
     prices: dict[str, float] = {}
-    # symbol -> (매수시그널 action, 매도시그널 action, name)
-    actions: dict[str, tuple[str, str, str]] = {}
+    # symbol -> {buy, sell, name, scores, df} — scores·df 는 매매 계획서(thesis) 재료
+    actions: dict[str, dict] = {}
 
     fx = resolve_fx(data_source)
     today = date.today().isoformat()
@@ -88,7 +89,12 @@ def run_paper_trading(account: PaperAccount, profile: UserProfile,
             a = analyze_symbol(sym, profile, data_source, news_source, weights=weights)
             prices[sym] = to_krw(a.price.last_close, a.price.market, fx)
             sell_act = a.sell_signal.action if a.sell_signal else a.signal.action
-            actions[sym] = (a.signal.action, sell_act, a.price.name)
+            actions[sym] = {
+                "buy": a.signal.action, "sell": sell_act, "name": a.price.name,
+                "scores": {"trend": a.trend.score, "news": a.news.score,
+                           "pref": a.pref.score, "total": a.signal.total},
+                "df": a.price.df,
+            }
         except Exception:  # noqa: BLE001 - 한 종목 실패가 전체를 막지 않게
             continue
 
@@ -103,7 +109,7 @@ def run_paper_trading(account: PaperAccount, profile: UserProfile,
             continue
         h = account.holdings[sym]
         px = prices[sym]
-        name = actions.get(sym, (None, None, ""))[2]
+        name = actions.get(sym, {}).get("name", "")
         down_from_avg = px / h.avg_price - 1.0 if h.avg_price else 0.0
         peak = h.peak_price or h.avg_price
         down_from_peak = px / peak - 1.0 if peak else 0.0
@@ -120,23 +126,28 @@ def run_paper_trading(account: PaperAccount, profile: UserProfile,
     # 4) 시그널 매도 — 선호 제외 매도점수 기준 (남은 보유 종목)
     #    매수 후 MIN_HOLD_BDAYS 영업일 내엔 보류 — 장중 점수 흔들림에 의한
     #    당일 매수→매도 왕복 방지(2026-07-08 회고). 손절·트레일링(3단계)은 예외 없이 동작.
-    for sym, (buy_act, sell_act, name) in actions.items():
-        if sym in account.holdings and sell_act == "매도":
+    for sym, info in actions.items():
+        if sym in account.holdings and info["sell"] == "매도":
             if in_cooldown(account.holdings[sym].buy_date, today, MIN_HOLD_BDAYS):
                 continue  # 최소 보유기간 미경과 — 시그널 매도 보류
-            rec = account.sell(sym, prices[sym], name=name, reason="시그널(선호제외)")
+            rec = account.sell(sym, prices[sym], name=info["name"], reason="시그널(선호제외)")
             if rec:
                 trades.append(rec)
                 account.cooldowns[sym] = today  # 모든 매도에 재매수 쿨다운(왕복 방지)
 
-    # 5) 시그널 매수 — 미보유 + 매수시그널 + 쿨다운 경과
+    # 5) 시그널 매수 — 미보유 + 매수시그널 + 쿨다운 경과. 매수 시 매매 계획서(thesis) 동봉.
     budget = account.initial_capital * pos_pct
-    for sym, (buy_act, sell_act, name) in actions.items():
-        if buy_act == "매수" and sym not in account.holdings:
+    for sym, info in actions.items():
+        if info["buy"] == "매수" and sym not in account.holdings:
             if in_cooldown(account.cooldowns.get(sym), today, REENTRY_COOLDOWN_DAYS):
-                continue  # 손절 후 N영업일 내 재매수 금지
+                continue  # 매도 후 N영업일 내 재매수 금지
+            try:
+                thesis = build_thesis(info["df"], prices[sym], info["scores"])
+            except Exception:  # noqa: BLE001 - 계획서 실패가 매매를 막지 않게
+                thesis = None
             rec = account.buy(sym, prices[sym],
-                              krw_amount=min(budget, account.cash), name=name)
+                              krw_amount=min(budget, account.cash), name=info["name"],
+                              thesis=thesis)
             if rec:
                 trades.append(rec)
 

@@ -73,6 +73,7 @@ stock-project/
       account.py              ← PaperAccount (현금/보유/거래기록, 한·미 원화환산)
       trader.py               ← 시그널 → 자동 매수/매도 + 포지션 사이징(종목당 20%)
       report.py               ← 일일/주간 요약 리포트 (텔레그램 HTML)
+      thesis.py               ← 매매 계획서: 매수 시 회수예측(백테스트 통계) + 청산 시 계획대비 리뷰
       journal.py              ← 일별 자산 스냅샷 시계열 누적 (그래프 분석용 원천데이터)
   watch.py                    ← 24시간 모의투자 자동운용 + 요약발송 (--once / --get-chat-id)
 ```

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from ..config import FEE  # 거래비용(왕복 근사) — 단일 출처(config)
+from .thesis import review_exit
 
 DEFAULT_CAPITAL = 10_000_000  # 초기 가상자본 (원)
 
@@ -21,10 +22,12 @@ class Holding:
     avg_price: float          # 평균 매입가
     peak_price: float = 0.0   # 보유 중 고점(트레일링 스탑용) — WP2. 미저장 구데이터는 0.0
     buy_date: str | None = None  # 마지막 매수 시각 ISO — 최소보유기간 판정용. 구데이터는 None(제한 없음)
+    thesis: dict | None = None   # 매매 계획서(평가·회수예측) — thesis.build_thesis(). 구데이터는 None
 
     def to_dict(self) -> dict:
         return {"shares": self.shares, "avg_price": self.avg_price,
-                "peak_price": self.peak_price, "buy_date": self.buy_date}
+                "peak_price": self.peak_price, "buy_date": self.buy_date,
+                "thesis": self.thesis}
 
 
 @dataclass
@@ -38,7 +41,8 @@ class PaperAccount:
     cooldowns: dict[str, str] = field(default_factory=dict)  # symbol -> 마지막 손절일 ISO date (WP2 재진입 쿨다운)
 
     # ── 매매 ──────────────────────────────────────────
-    def buy(self, symbol: str, price: float, krw_amount: float, name: str = "") -> dict | None:
+    def buy(self, symbol: str, price: float, krw_amount: float, name: str = "",
+            thesis: dict | None = None) -> dict | None:
         """krw_amount(원화) 예산 안에서 최대 정수주 매수(수수료 포함).
 
         예산은 현금 한도를 넘지 않으며, 1주도 못 사면 매수하지 않는다(None).
@@ -58,10 +62,12 @@ class PaperAccount:
             h.shares = total
         else:
             self.holdings[symbol] = Holding(shares=shares, avg_price=price)
-        # 트레일링 스탑용 고점 초기화/갱신 (WP2) + 최소보유기간 기준일 갱신
+        # 트레일링 스탑용 고점 초기화/갱신 (WP2) + 최소보유기간 기준일 + 매매 계획서
         h = self.holdings[symbol]
         h.peak_price = max(h.peak_price or 0.0, price)
         h.buy_date = datetime.now().isoformat(timespec="seconds")
+        if thesis is not None:
+            h.thesis = thesis
         return self._record(symbol, name, "매수", shares, price, cost)
 
     def sell(self, symbol: str, price: float, name: str = "",
@@ -76,13 +82,14 @@ class PaperAccount:
         proceeds = h.shares * price * (1 - FEE)
         pnl = proceeds - h.shares * h.avg_price
         self.cash += proceeds
+        review = review_exit(h.thesis, price, reason)  # 계획 대비 실제 자동 채점(계획서 없으면 None)
         rec = self._record(symbol, name, "매도", h.shares, price, proceeds,
-                           pnl=pnl, reason=reason)
+                           pnl=pnl, reason=reason, review=review)
         del self.holdings[symbol]
         return rec
 
     def _record(self, symbol, name, action, shares, price, amount,
-                pnl=None, reason=None) -> dict:
+                pnl=None, reason=None, review=None) -> dict:
         rec = {
             "date": datetime.now().isoformat(timespec="seconds"),
             "symbol": symbol, "name": name, "action": action,
@@ -92,6 +99,8 @@ class PaperAccount:
             rec["pnl"] = round(pnl, 0)
         if reason is not None:
             rec["reason"] = reason
+        if review is not None:
+            rec["review"] = review  # 매매 계획 대비 실제 (조기/계획범위/지연 · 기대수익 달성 여부)
         self.history.append(rec)
         return rec
 

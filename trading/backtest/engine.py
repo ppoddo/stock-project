@@ -41,6 +41,8 @@ class BacktestResult:
     buy_th: float
     sell_th: float
     stop_loss: float | None = None   # 손절률(WP3, 없으면 손절 미적용)
+    avg_hold_days: float = 0.0       # 거래당 평균 보유 영업일 — 매매 계획서(예상 회수일) 근거
+    avg_trade_return: float = 0.0    # 거래당 평균 수익률 — 매매 계획서(기대수익) 근거
 
     @property
     def beats_bnh(self) -> bool:
@@ -56,18 +58,29 @@ class BacktestResult:
         )
 
 
-def _win_rate(position: pd.Series, close: pd.Series) -> tuple[float, int]:
-    """진입~청산 구간별 수익으로 승률과 거래수를 계산한다."""
+def _trade_stats(position: pd.Series, close: pd.Series) -> tuple[float, int, float, float]:
+    """진입~청산 구간별로 승률·거래수·평균 보유일·평균 수익률을 계산한다.
+
+    평균 보유일/수익률은 매매 계획서(thesis)의 예상 회수일·기대수익 근거가 된다.
+    """
     entries = position[(position == 1) & (position.shift(1, fill_value=0) == 0)].index
     exits = position[(position == 0) & (position.shift(1, fill_value=0) == 1)].index
     wins = trades = 0
+    hold_days: list[int] = []
+    trade_rets: list[float] = []
     for i, ent in enumerate(entries):
         # 대응 청산일(없으면 마지막 날까지 보유한 것으로 처리)
         ex = exits[i] if i < len(exits) else close.index[-1]
-        if close.loc[ex] > close.loc[ent]:
+        ret = close.loc[ex] / close.loc[ent] - 1.0
+        if ret > 0:
             wins += 1
         trades += 1
-    return (wins / trades if trades else 0.0), trades
+        hold_days.append(int(close.index.get_loc(ex) - close.index.get_loc(ent)))
+        trade_rets.append(float(ret))
+    win_rate = wins / trades if trades else 0.0
+    avg_hold = float(np.mean(hold_days)) if hold_days else 0.0
+    avg_ret = float(np.mean(trade_rets)) if trade_rets else 0.0
+    return win_rate, trades, avg_hold, avg_ret
 
 
 def run_backtest(df: pd.DataFrame, score_series: pd.Series | None = None,
@@ -162,11 +175,12 @@ def run_backtest(df: pd.DataFrame, score_series: pd.Series | None = None,
     mdd = float(drawdown.min())
     std = strat_ret.std()
     sharpe = float(strat_ret.mean() / std * np.sqrt(TRADING_DAYS)) if std > 0 else 0.0
-    win_rate, n_trades = _win_rate(position, close)
+    win_rate, n_trades, avg_hold, avg_ret = _trade_stats(position, close)
     bnh_return = float(close.iloc[-1] / close.iloc[0] - 1.0)
 
     return BacktestResult(
         total_return=total_return, cagr=cagr, mdd=mdd, sharpe=sharpe,
         win_rate=win_rate, n_trades=n_trades, bnh_return=bnh_return,
         equity=equity, buy_th=buy_th, sell_th=sell_th, stop_loss=stop_loss,
+        avg_hold_days=avg_hold, avg_trade_return=avg_ret,
     )

@@ -47,8 +47,12 @@ def build_summary(account: PaperAccount, prices: dict[str, float],
             pnl, pnl_pct = account.position_pnl(sym, px)
             mark = "🔺" if pnl >= 0 else "🔻"
             name = name_of(account, sym)  # history 역순에서 종목명 보강
+            # 매매 계획서가 있으면 예상 회수일 표기 (평가단계 회수시점 예측)
+            plan = ""
+            if h.thesis and h.thesis.get("expected_exit_date"):
+                plan = f" · 회수예정 {h.thesis['expected_exit_date'][5:]}"
             lines.append(f"· {name} {h.shares}주 · 평단 {h.avg_price:,.0f} "
-                         f"→ {px:,.0f}  {mark}{pnl_pct*100:+.1f}%")
+                         f"→ {px:,.0f}  {mark}{pnl_pct*100:+.1f}%{plan}")
 
     if recent_trades:
         lines.append(f"\n<b>최근 체결 {len(recent_trades)}건</b>")
@@ -57,6 +61,11 @@ def build_summary(account: PaperAccount, prices: dict[str, float],
             extra = f" (손익 {t['pnl']:+,.0f})" if "pnl" in t else ""
             lines.append(f"{emoji} {t.get('name') or t['symbol']} "
                          f"{t['shares']}주 @ {t['price']:,.0f}{extra}")
+            rv = t.get("review")
+            if rv:  # 계획 대비 리뷰 (조기/계획범위/지연 · 기대수익 달성)
+                lines.append(f"   └ 계획리뷰: {rv['verdict']} "
+                             f"(보유 {rv['actual_hold_bdays']}/{rv['expected_hold_bdays']}일 · "
+                             f"수익 {rv['actual_return_pct']:+.1f}%/기대 {rv['expected_return_pct']:+.1f}%)")
 
     lines.append("\n<i>⚠️ 가상계좌 시뮬레이션 · 실거래 아님 · 투자 책임은 본인</i>")
     return "\n".join(lines)

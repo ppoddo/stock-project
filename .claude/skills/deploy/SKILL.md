@@ -14,12 +14,13 @@ bash scripts/check.sh
 ```bash
 git add <변경파일들> && git commit -m "..." && git push origin main
 ```
-3. **VM 반영**:
+3. **VM 반영** — 기본은 자동배포: VM의 `autopull.timer` 가 5분마다 origin/main 을 확인해
+   pull → `scripts/check.sh` → 통과 시 재시작 / 실패 시 롤백 + 텔레그램 통지. **푸시만 하면 됨.**
+   즉시 반영이 필요할 때만 수동:
 ```bash
-ssh oracle-vm "cd stock-project && git pull --ff-only && sudo systemctl restart watch"
+ssh oracle-vm "sudo systemctl start autopull.service"   # 자동배포 즉시 1회 (게이트+롤백 포함, 권장)
+ssh oracle-vm "cd stock-project && git pull --ff-only && sudo systemctl restart watch"  # 구식 수동
 ```
-   - 문서/스킬/테스트만 바뀐 경우 restart 생략 가능 (pull만).
-   - 대시보드(app.py) 변경 시: `sudo systemctl restart dashboard` 도 실행.
 4. **가동 확인** (필수 — 이걸 봐야 배포 완료):
 ```bash
 ssh oracle-vm "sudo systemctl is-active watch && tail -5 stock-project/watch.log"

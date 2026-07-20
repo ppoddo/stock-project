@@ -1,0 +1,10 @@
+# 자동배포 단발 실행 유닛 — autopull.timer 가 주기 호출
+[Unit]
+Description=AI Trading auto-deploy (git pull + verify gate + restart)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/stock-project
+ExecStart=/usr/bin/bash /home/ubuntu/stock-project/deploy/autopull.sh

@@ -1,0 +1,10 @@
+# 5분마다 자동배포 점검 — 어디서 푸시하든(폰 클라우드 세션 포함) VM에 자동 반영
+[Unit]
+Description=Run AI Trading auto-deploy every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

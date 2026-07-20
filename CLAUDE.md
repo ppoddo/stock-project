@@ -23,6 +23,7 @@
 4. **파라미터는 숫자로만 바꾼다**: `trading/config.py` 값 변경은 백테스트 비교표가 있어야 한다. 근거는 `docs/tuning-result.md` 에 누적(삭제 금지). 종합 임계값(BUY/SELL_THRESHOLD)에 백테스트 추세 임계값(BT_*)을 직접 대입 금지 — 점수 스케일이 다르다.
 5. **반복 작업은 스킬 절차대로**: `/report`(현황 보고) · `/why`(시그널 이유) · `/retro`(손실 회고→검증된 개선) · `/deploy`(검증→배포). `.claude/skills/` 참고.
 6. **운영 데이터·환경**: 실데이터는 Oracle VM(`ssh oracle-vm`)에, 로컬 `data_store/` 는 테스트 잔재. 워커 로그는 journalctl 이 아니라 VM의 `~/stock-project/watch.log`. 텔레그램 폴링은 봇당 1곳 — 로컬에서 `watch.py` 무한루프 실행 금지(VM과 409 충돌).
+7. **자동배포**: VM `autopull.timer` 가 5분마다 origin/main 새 커밋을 pull → `check.sh` 게이트 → 통과 시 서비스 재시작, 실패 시 롤백 (+텔레그램 통지). **main 에 푸시 = 배포**라는 뜻 — 검증 안 된 커밋을 main 에 올리지 말 것.
 
 ## 기술 스택
 | 영역 | 기술 | 비고 |

@@ -13,7 +13,7 @@ from datetime import datetime
 
 import numpy as np
 
-from ..config import STOP_LOSS_PCT
+from ..config import STOP_LOSS_PCT, TRAILING_STOP_PCT
 from ..analysis import trend_score_series
 from ..backtest import run_backtest
 
@@ -26,7 +26,9 @@ def build_thesis(df, price_krw: float, scores: dict, today_iso: str | None = Non
     반환 dict 는 JSON 직렬화 가능해야 한다(가상계좌 저장 포맷).
     """
     today = today_iso or datetime.now().date().isoformat()
-    bt = run_backtest(df, score_series=trend_score_series(df), stop_loss=STOP_LOSS_PCT)
+    # 라이브와 동일 규칙(손절+트레일링)으로 통계 산출 — 3차 회고에서 정합화
+    bt = run_backtest(df, score_series=trend_score_series(df),
+                      stop_loss=STOP_LOSS_PCT, trailing_stop=TRAILING_STOP_PCT)
 
     # 예상 회수일: 이 종목 전략의 평균 보유 영업일 (최소 1일)
     hold_bdays = max(int(round(bt.avg_hold_days)), 1)

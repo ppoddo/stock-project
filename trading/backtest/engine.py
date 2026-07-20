@@ -87,7 +87,9 @@ def run_backtest(df: pd.DataFrame, score_series: pd.Series | None = None,
                  buy_th: float | None = None, sell_th: float | None = None,
                  fee: float | None = None,
                  stop_loss: float | None = None,
-                 min_hold_days: int | None = None) -> BacktestResult:
+                 min_hold_days: int | None = None,
+                 trailing_stop: float | None = None,
+                 trailing_arm: float | None = None) -> BacktestResult:
     """추세 점수 전략을 백테스트한다.
 
     score_series 를 주면 그걸로, 없으면 trend_score_series(df) 로 신호를 만든다.
@@ -97,6 +99,9 @@ def run_backtest(df: pd.DataFrame, score_series: pd.Series | None = None,
       이후 새 매수신호가 나기 전까지 현금 유지.
     min_hold_days(예 2) 를 주면 진입 후 그 일수 동안 '시그널 매도'를 무시하고 보유를
       유지한다(왕복매매 축소 검증용). 손절(stop_loss)은 최소보유와 무관하게 항상 동작.
+    trailing_stop(예 0.10): 진입 후 고점(종가) 대비 -trailing_stop 이탈 시 t+1일 청산.
+    trailing_arm(예 0.03): 고점이 진입가×(1+arm) 이상일 때만 트레일링 활성화 —
+      신규 포지션을 트레일링이 손절보다 먼저 자르는 문제 검증용. None=항상 활성(라이브 현행).
     """
     # config 기본값 적용 (단일 출처)
     buy_th = BT_BUY_TH if buy_th is None else buy_th
@@ -132,31 +137,39 @@ def run_backtest(df: pd.DataFrame, score_series: pd.Series | None = None,
                     entry_i = None
         position = pd.Series(pos_vals, index=position.index)
 
-    # 2.5) 손절 반영 — 진입가 대비 t일 손실이 -stop_loss 이하면 t+1일 강제 청산.
-    #     look-ahead 유지: t일 종가로 판정 → t+1일부터 현금(다음 매수신호까지).
-    if stop_loss is not None and stop_loss > 0:
+    # 2.5) 손절/트레일링 반영 — t일 종가로 판정, t+1일 강제 청산 (look-ahead 유지).
+    #     손절: 진입가 대비 -stop_loss 이탈. 트레일링: 고점 대비 -trailing_stop 이탈
+    #     (trailing_arm 지정 시 고점이 진입가×(1+arm) 이상일 때만 활성 — 라이브와 동일 규칙 재현).
+    use_stop = stop_loss is not None and stop_loss > 0
+    use_trail = trailing_stop is not None and trailing_stop > 0
+    if use_stop or use_trail:
         pos_vals = position.to_numpy(copy=True)
         close_vals = close.to_numpy()
         entry_price = None      # 현재 포지션의 진입가(t+1 체결가 근사=진입일 종가)
-        stopped = False         # 손절 상태(새 매수신호 전까지 현금 유지)
+        peak = None             # 보유 중 종가 고점 (트레일링 기준)
+        stopped = False         # 강제청산 상태(새 매수신호 전까지 현금 유지)
         for i in range(len(pos_vals)):
             if stopped:
                 if pos_vals[i] == 1.0:
                     # target 이 여전히 보유를 원하면 강제 현금 유지, 아니면 자연 해제
                     pos_vals[i] = 0.0
                 else:
-                    stopped = False  # target 자체가 현금 → 손절상태 해제(다음 진입 허용)
-                    entry_price = None
+                    stopped = False  # target 자체가 현금 → 청산상태 해제(다음 진입 허용)
+                    entry_price = peak = None
                     continue
             if pos_vals[i] == 1.0:
                 if entry_price is None:
-                    entry_price = close_vals[i]     # 진입일 종가를 평단 근사로 사용
-                # t일 종가 기준 손실 판정 → 다음 날부터 청산
-                if close_vals[i] / entry_price - 1.0 <= -stop_loss:
+                    entry_price = peak = close_vals[i]  # 진입일 종가를 평단 근사로
+                peak = max(peak, close_vals[i])
+                hit = use_stop and close_vals[i] / entry_price - 1.0 <= -stop_loss
+                if not hit and use_trail:
+                    armed = trailing_arm is None or peak >= entry_price * (1 + trailing_arm)
+                    hit = armed and close_vals[i] / peak - 1.0 <= -trailing_stop
+                if hit:  # t일 종가 판정 → 다음 날부터 청산
                     stopped = True
-                    entry_price = None
+                    entry_price = peak = None
             else:
-                entry_price = None
+                entry_price = peak = None
         position = pd.Series(pos_vals, index=position.index)
 
     # 3) 일별 수익 = 보유일의 가격수익 - 포지션 전환일의 거래비용

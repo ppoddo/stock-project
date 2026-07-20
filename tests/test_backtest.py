@@ -82,6 +82,41 @@ class TestMinHold(unittest.TestCase):
         self.assertAlmostEqual(r.total_return, -0.10, places=6)  # 손절 없인 -50%
 
 
+class TestTrailingStop(unittest.TestCase):
+    def test_고점대비_이탈시_다음날_청산(self):
+        """+20% 상승 후 고점 대비 -10% → t+1일 청산. 이후 폭락 회피."""
+        closes = [100, 100, 120, 107, 40, 40]   # idx3: 120→107 = 고점대비 -10.8%
+        df = make_df(closes)
+        s = scores([70] * 6, df)
+        r = run_backtest(df, score_series=s, buy_th=60, sell_th=40,
+                         fee=0.0, trailing_stop=0.10)
+        # idx1 진입(100) → idx2 +20% → idx3 -10.8%(판정, 당일 하락은 맞음) → idx4부터 현금
+        self.assertAlmostEqual(r.total_return, 0.07, places=6)   # 107/100 - 1
+
+    def test_arm_설정시_수익권_전엔_트레일링_비활성(self):
+        """진입 직후 고점≈진입가 상태에서 트레일링이 손절 역할을 하면 안 된다(arm)."""
+        closes = [100, 100, 103, 92, 92, 92]    # 고점 103(+3%) → 92 = 고점대비 -10.7%
+        df = make_df(closes)
+        s = scores([70] * 6, df)
+        armed_always = run_backtest(df, score_series=s, buy_th=60, sell_th=40,
+                                    fee=0.0, trailing_stop=0.10)
+        armed_5pct = run_backtest(df, score_series=s, buy_th=60, sell_th=40,
+                                  fee=0.0, trailing_stop=0.10, trailing_arm=0.05)
+        # 항상 활성(현행 라이브): idx3 청산 → -8% 확정. arm 5%: 고점 +3%뿐 → 미발동, 계속 보유
+        self.assertAlmostEqual(armed_always.total_return, -0.08, places=6)
+        self.assertAlmostEqual(armed_5pct.total_return, -0.08, places=6)  # 평가손 동일하나
+        # 차이는 '청산 여부' — 항상활성은 현금(이후 회복 못 먹음), arm은 보유 유지
+        closes2 = closes + [110]
+        df2 = make_df(closes2)
+        s2 = scores([70] * 7, df2)
+        always2 = run_backtest(df2, score_series=s2, buy_th=60, sell_th=40,
+                               fee=0.0, trailing_stop=0.10)
+        arm2 = run_backtest(df2, score_series=s2, buy_th=60, sell_th=40,
+                            fee=0.0, trailing_stop=0.10, trailing_arm=0.05)
+        self.assertAlmostEqual(always2.total_return, -0.08, places=6)  # 반등 놓침
+        self.assertAlmostEqual(arm2.total_return, 0.10, places=6)      # 보유 유지 → 회복
+
+
 class TestDefaults(unittest.TestCase):
     def test_기본_임계값은_config에서(self):
         from trading.config import BT_BUY_TH, BT_SELL_TH

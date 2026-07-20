@@ -81,6 +81,9 @@ stock-project/
 
 ## 개발 환경
 ```bash
+# 새 환경(클라우드 세션 등)이라 venv 가 없으면 먼저:
+python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
+
 # 의존성 설치
 ./venv/bin/pip install -r requirements.txt
 

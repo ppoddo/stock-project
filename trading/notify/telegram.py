@@ -16,6 +16,16 @@ from .base import Notifier
 
 _API = "https://api.telegram.org/bot{token}/{method}"
 
+# 모든 발신 메시지 하단에 붙는 명령어 안내 (사용자가 명령을 외울 필요 없게)
+HELP_FOOTER = "\n\n<i>💬 명령어 안내: /help</i>"
+
+
+def append_help_footer(message: str) -> str:
+    """메시지 하단에 /help 안내를 붙인다. 도움말 자체(이미 /help 포함)는 제외."""
+    if "/help" in message:
+        return message
+    return message + HELP_FOOTER
+
 
 class TelegramNotifier(Notifier):
     """텔레그램 Bot API 로 메시지를 보낸다."""
@@ -35,7 +45,7 @@ class TelegramNotifier(Notifier):
         try:
             r = requests.post(url, timeout=10, data={
                 "chat_id": self.chat_id,
-                "text": message,
+                "text": append_help_footer(message),
                 "parse_mode": "HTML",
                 "disable_web_page_preview": True,
             })

@@ -102,13 +102,94 @@ def maybe_send_summary(account, prices, notifier, storage,
 TG_HELP = (
     "🤖 <b>모의투자 봇 명령</b>\n"
     "/status — 계좌 현황 + 성과 진단\n"
+    "/plan — 보유 종목 매매 계획서 (회수예정 D-day·기대 대비)\n"
+    "/why 종목 — 왜 이 시그널인지 점수 분해 (예: /why NVDA)\n"
+    "/trades — 최근 체결 5건 (사유·계획리뷰)\n"
+    "/config — 현행 전략 파라미터\n"
     "/run — 즉시 자동운용 1회\n"
     "/report — 일일 리포트 즉시 발송\n"
-    "/pause — 자동매매 일시정지\n"
-    "/resume — 자동매매 재개\n"
+    "/pause · /resume — 자동매매 일시정지/재개\n"
     "/help — 이 도움말\n"
     "⚠️ 가상계좌 전용 · 투자 판단·책임은 본인에게"
 )
+
+
+def cmd_config() -> str:
+    """현행 전략 파라미터 요약 (trading/config.py 단일 출처)."""
+    from trading import config as c
+    return (
+        "⚙️ <b>현행 전략 파라미터</b>\n"
+        f"매수 ≥ {c.BUY_THRESHOLD:.0f} · 매도 &lt; {c.SELL_THRESHOLD:.0f} (종합점수)\n"
+        f"손절 -{c.STOP_LOSS_PCT:.0%} · 트레일링 -{c.TRAILING_STOP_PCT:.0%} (고점 대비)\n"
+        f"최소보유 {c.MIN_HOLD_BDAYS}영업일 · 재매수 쿨다운 {c.REENTRY_COOLDOWN_DAYS}영업일\n"
+        f"종목당 배분 {c.POSITION_PCT:.0%} · 최대 {c.MAX_POSITIONS}종목 · "
+        f"테마당 {c.THEME_CAP}종목 · 현금버퍼 {c.CASH_BUFFER_PCT:.0%}\n"
+        f"근거: docs/tuning-result.md (1~3차 튜닝)"
+    )
+
+
+def cmd_trades(account, n: int = 5) -> str:
+    """최근 체결 n건 — 사유·계획리뷰 포함."""
+    if not account.history:
+        return "체결 내역이 없어요."
+    lines = [f"📒 <b>최근 체결 {min(n, len(account.history))}건</b>"]
+    for r in account.history[-n:]:
+        emoji = "🟢" if r["action"] == "매수" else "🔴"
+        pnl = f" ({r['pnl']:+,.0f}원)" if r.get("pnl") is not None else ""
+        lines.append(f"{emoji} {r['date'][5:10]} {r.get('name') or r['symbol']} "
+                     f"{r['shares']}주 @ {r['price']:,.0f} {r.get('reason', '')}{pnl}")
+        rv = r.get("review")
+        if rv:
+            lines.append(f"   └ {rv['verdict']}")
+    return "\n".join(lines)
+
+
+def cmd_plan(account, prices: dict[str, float]) -> str:
+    """보유 종목 매매 계획서 현황 — 회수예정 D-day, 기대 대비 현재."""
+    import numpy as np
+    if not account.holdings:
+        return "보유 종목이 없어요."
+    today = datetime.now(KST).date().isoformat()
+    lines = ["📋 <b>매매 계획서 현황</b>"]
+    for sym, h in account.holdings.items():
+        px = prices.get(sym, h.avg_price)
+        cur = (px / h.avg_price - 1) * 100 if h.avg_price else 0.0
+        th = h.thesis
+        if not th:
+            lines.append(f"· {sym} {h.shares}주 {cur:+.1f}% — 계획서 없음(도입 전 매수)")
+            continue
+        try:
+            dday = int(np.busday_count(today, th["expected_exit_date"]))
+            d_str = f"D-{dday}" if dday > 0 else ("D-day" if dday == 0 else f"D+{-dday}")
+        except Exception:  # noqa: BLE001 - 날짜 파싱 문제로 전체가 죽지 않게
+            d_str = th.get("expected_exit_date", "?")
+        lines.append(f"· {sym} {h.shares}주: 회수예정 {th['expected_exit_date'][5:]}({d_str}) · "
+                     f"현재 {cur:+.1f}% / 기대 {th['expected_return_pct']:+.1f}% · "
+                     f"손절선 {th['stop_price']:,.0f}")
+    lines.append("<i>회수예정 = 백테스트 평균 보유일 기반 예측(참고용)</i>")
+    return "\n".join(lines)
+
+
+def cmd_why(symbol: str, profile, data_src, news_src) -> str:
+    """종목 하나의 시그널 근거를 즉석 분석해 점수 분해로 보여준다."""
+    from trading.signal import analyze_symbol
+    from trading.config import BUY_THRESHOLD, SELL_THRESHOLD
+    sym = symbol if symbol.isdigit() else symbol.upper()
+    a = analyze_symbol(sym, profile, data_src, news_src)
+    s = a.signal
+    lines = [
+        f"🔍 <b>{a.price.name}({sym})</b> 종합 {s.total} → {s.emoji} {s.action} "
+        f"(매수≥{BUY_THRESHOLD:.0f}/매도&lt;{SELL_THRESHOLD:.0f})",
+        f"추세 {s.trend} · 뉴스 {s.news} · 선호 {s.pref}",
+    ]
+    if a.sell_signal:
+        lines.append(f"매도판정점수(선호 제외): {a.sell_signal.total} → {a.sell_signal.action}")
+    lines.append("")
+    for r in a.trend.reasons:
+        lines.append(f"· {r}")
+    for r in a.news.reasons[:2]:
+        lines.append(f"· {r}")
+    return "\n".join(lines)
 
 
 def watch_loop(once: bool) -> None:
@@ -155,10 +236,28 @@ def watch_loop(once: bool) -> None:
 
     def handle_command(text: str) -> None:
         nonlocal paused, next_run
-        cmd = text.split()[0].split("@")[0].lower()
+        parts = text.split()
+        cmd = parts[0].split("@")[0].lower()
+        arg = parts[1] if len(parts) > 1 else ""
         if cmd == "/status":
             tg.send(build_summary(account, status_prices(), "현황",
                                   equity_history=load_equity_history(storage)))
+        elif cmd == "/plan":
+            tg.send(cmd_plan(account, status_prices()))
+        elif cmd == "/trades":
+            tg.send(cmd_trades(account))
+        elif cmd == "/config":
+            tg.send(cmd_config())
+        elif cmd == "/why":
+            if not arg:
+                tg.send("사용법: /why 종목코드 (예: /why NVDA · /why 005930)")
+            else:
+                tg.send(f"🔍 {arg} 분석 중… (몇 초 걸려요)")
+                try:
+                    profile = UserProfile.from_dict(storage.load_profile())
+                    tg.send(cmd_why(arg, profile, data_src, news_src))
+                except Exception as e:  # noqa: BLE001 - 잘못된 종목코드 등
+                    tg.send(f"분석 실패: {arg} — 종목코드를 확인해 주세요 ({e})")
         elif cmd == "/run":
             tg.send("▶️ 즉시 자동운용 1회를 시작합니다…")
             next_run = 0.0

@@ -141,4 +141,4 @@ WSL Ubuntu에서 개발.
 ## 실행
 - 대시보드: `./venv/bin/streamlit run app.py`
 - 감시 워커: `./venv/bin/python watch.py` (무한) · `--once`(1회) · `--get-chat-id`(chat_id 확인)
-- 텔레그램 양방향 명령(워커 구동 중 봇 채팅): `/status` `/run` `/report` `/pause` `/resume` `/help` — 본인 chat_id만 반응, 개별 종목 매수/매도 지시는 안전상 미지원(추가 시 사용자 승인 필요)
+- 텔레그램 양방향 명령(워커 구동 중 봇 채팅): `/status` `/plan` `/why 종목` `/trades` `/config` `/run` `/report` `/pause` `/resume` `/help` — 본인 chat_id만 반응, 모든 발신 메시지 하단에 /help 안내 풋터 자동 부착. 개별 종목 매수/매도 지시는 안전상 미지원(추가 시 사용자 승인 필요)

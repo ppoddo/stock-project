@@ -80,3 +80,10 @@ sudo systemctl enable --now watch.service
 | 재시작 | `sudo systemctl restart watch.service` |
 | 정지 | `sudo systemctl stop watch.service` |
 | 자동시작 끄기 | `sudo systemctl disable watch.service` |
+
+---
+
+## 자동배포 (autopull) — 푸시하면 5분 내 VM 반영
+- 설치(1회): `sudo cp deploy/autopull.service deploy/autopull.timer /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now autopull.timer`
+- 동작: 5분마다 origin/main 확인 → 새 커밋 pull → `scripts/check.sh` 게이트 → 통과 시 워커/대시보드 재시작, 실패 시 롤백. 결과 텔레그램 통지.
+- 즉시 1회: `sudo systemctl start autopull.service` · 로그: `/tmp/autopull-check.log`

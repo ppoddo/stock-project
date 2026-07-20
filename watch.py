@@ -204,7 +204,7 @@ def watch_loop(once: bool) -> None:
     ch = "텔레그램" if tg else "콘솔(텔레그램 미설정)"
     print(f"모의투자 자동운용 시작 · 알림: {ch} · 간격: {interval//60}분 · 현금 {account.cash:,.0f}원")
     if tg and not once:
-        print("텔레그램 명령 대기: /status /run /report /pause /resume /help")
+        print("텔레그램 명령 대기: /status /plan /why /trades /config /run /report /pause /resume /help")
 
     paused = False
     next_run = 0.0

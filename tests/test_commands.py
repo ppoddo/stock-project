@@ -6,6 +6,27 @@ from trading.paper.account import PaperAccount
 from watch import TG_HELP, cmd_config, cmd_plan, cmd_trades
 
 
+class TestDisplayName(unittest.TestCase):
+    def test_한글사전_우선(self):
+        from trading.profile.themes import display_name
+        self.assertEqual(display_name("NVDA"), "엔비디아")
+        self.assertEqual(display_name("069500"), "KODEX 200")
+        self.assertEqual(display_name("RBLX", "RBLX"), "로블록스")
+
+    def test_사전에없으면_폴백순서(self):
+        from trading.profile.themes import display_name
+        self.assertEqual(display_name("XXXX", "어떤회사"), "어떤회사")   # FDR 이름
+        self.assertEqual(display_name("XXXX", "XXXX"), "XXXX")          # 이름조회 실패
+        self.assertEqual(display_name("XXXX"), "XXXX")                  # 코드 그대로
+
+    def test_리포트_이름해석_통합(self):
+        """미국 티커로 산 기록도 한글명으로 표시돼야 한다."""
+        from trading.paper.analytics import name_of
+        a = PaperAccount()
+        a.buy("NVDA", 100.0, krw_amount=10_000, name="NVDA")   # FDR이 티커만 준 상황
+        self.assertEqual(name_of(a, "NVDA"), "엔비디아")
+
+
 class TestHelpFooter(unittest.TestCase):
     def test_모든_메시지에_풋터(self):
         out = append_help_footer("리포트 본문")

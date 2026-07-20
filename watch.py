@@ -133,10 +133,11 @@ def cmd_trades(account, n: int = 5) -> str:
     if not account.history:
         return "체결 내역이 없어요."
     lines = [f"📒 <b>최근 체결 {min(n, len(account.history))}건</b>"]
+    from trading.profile.themes import display_name
     for r in account.history[-n:]:
         emoji = "🟢" if r["action"] == "매수" else "🔴"
         pnl = f" ({r['pnl']:+,.0f}원)" if r.get("pnl") is not None else ""
-        lines.append(f"{emoji} {r['date'][5:10]} {r.get('name') or r['symbol']} "
+        lines.append(f"{emoji} {r['date'][5:10]} {display_name(r['symbol'], r.get('name'))} "
                      f"{r['shares']}주 @ {r['price']:,.0f} {r.get('reason', '')}{pnl}")
         rv = r.get("review")
         if rv:
@@ -147,6 +148,7 @@ def cmd_trades(account, n: int = 5) -> str:
 def cmd_plan(account, prices: dict[str, float]) -> str:
     """보유 종목 매매 계획서 현황 — 회수예정 D-day, 기대 대비 현재."""
     import numpy as np
+    from trading.profile.themes import display_name
     if not account.holdings:
         return "보유 종목이 없어요."
     today = datetime.now(KST).date().isoformat()
@@ -155,15 +157,16 @@ def cmd_plan(account, prices: dict[str, float]) -> str:
         px = prices.get(sym, h.avg_price)
         cur = (px / h.avg_price - 1) * 100 if h.avg_price else 0.0
         th = h.thesis
+        name = display_name(sym)
         if not th:
-            lines.append(f"· {sym} {h.shares}주 {cur:+.1f}% — 계획서 없음(도입 전 매수)")
+            lines.append(f"· {name} {h.shares}주 {cur:+.1f}% — 계획서 없음(도입 전 매수)")
             continue
         try:
             dday = int(np.busday_count(today, th["expected_exit_date"]))
             d_str = f"D-{dday}" if dday > 0 else ("D-day" if dday == 0 else f"D+{-dday}")
         except Exception:  # noqa: BLE001 - 날짜 파싱 문제로 전체가 죽지 않게
             d_str = th.get("expected_exit_date", "?")
-        lines.append(f"· {sym} {h.shares}주: 회수예정 {th['expected_exit_date'][5:]}({d_str}) · "
+        lines.append(f"· {name} {h.shares}주: 회수예정 {th['expected_exit_date'][5:]}({d_str}) · "
                      f"현재 {cur:+.1f}% / 기대 {th['expected_return_pct']:+.1f}% · "
                      f"손절선 {th['stop_price']:,.0f}")
     lines.append("<i>회수예정 = 백테스트 평균 보유일 기반 예측(참고용)</i>")
@@ -174,11 +177,12 @@ def cmd_why(symbol: str, profile, data_src, news_src) -> str:
     """종목 하나의 시그널 근거를 즉석 분석해 점수 분해로 보여준다."""
     from trading.signal import analyze_symbol
     from trading.config import BUY_THRESHOLD, SELL_THRESHOLD
+    from trading.profile.themes import display_name
     sym = symbol if symbol.isdigit() else symbol.upper()
     a = analyze_symbol(sym, profile, data_src, news_src)
     s = a.signal
     lines = [
-        f"🔍 <b>{a.price.name}({sym})</b> 종합 {s.total} → {s.emoji} {s.action} "
+        f"🔍 <b>{display_name(sym, a.price.name)}({sym})</b> 종합 {s.total} → {s.emoji} {s.action} "
         f"(매수≥{BUY_THRESHOLD:.0f}/매도&lt;{SELL_THRESHOLD:.0f})",
         f"추세 {s.trend} · 뉴스 {s.news} · 선호 {s.pref}",
     ]

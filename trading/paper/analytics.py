@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ..profile.themes import symbol_themes
+from ..profile.themes import display_name, symbol_themes
 from .account import PaperAccount
 
 
@@ -44,11 +44,11 @@ class PerformanceReport:
 
 
 def name_of(account: PaperAccount, symbol: str) -> str:
-    """history 역순에서 종목 표시명을 찾는다(없으면 symbol)."""
+    """종목 표시명: 한글 사전 우선, 없으면 history 의 기록명, 그것도 없으면 코드."""
     for rec in reversed(account.history):
         if rec.get("symbol") == symbol and rec.get("name"):
-            return rec["name"]
-    return symbol
+            return display_name(symbol, rec["name"])
+    return display_name(symbol)
 
 
 def _max_drawdown(totals: list[float]) -> float:

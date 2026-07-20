@@ -56,10 +56,11 @@ def build_summary(account: PaperAccount, prices: dict[str, float],
 
     if recent_trades:
         lines.append(f"\n<b>최근 체결 {len(recent_trades)}건</b>")
+        from ..profile.themes import display_name
         for t in recent_trades[-5:]:
             emoji = "🟢" if t["action"] == "매수" else "🔴"
             extra = f" (손익 {t['pnl']:+,.0f})" if "pnl" in t else ""
-            lines.append(f"{emoji} {t.get('name') or t['symbol']} "
+            lines.append(f"{emoji} {display_name(t['symbol'], t.get('name'))} "
                          f"{t['shares']}주 @ {t['price']:,.0f}{extra}")
             rv = t.get("review")
             if rv:  # 계획 대비 리뷰 (조기/계획범위/지연 · 기대수익 달성)
